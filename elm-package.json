@@ -1,0 +1,19 @@
+{
+    "version": "1.0.0",
+    "summary": "Hash based Dict and Set implementations for Elm.",
+    "repository": "https://github.com/Skinney/elm-hashmap-exploration.git",
+    "license": "BSD3",
+    "source-directories": [
+        "src"
+    ],
+    "exposed-modules": [
+        "Hash.Dict",
+        "Hash.Set"
+    ],
+    "dependencies": {
+        "Skinney/fnv": "1.0.0 <= v < 2.0.0",
+        "elm-community/list-extra": "7.0.0 <= v < 8.0.0",
+        "elm-lang/core": "5.0.0 <= v < 6.0.0"
+    },
+    "elm-version": "0.18.0 <= v < 0.19.0"
+}
