@@ -62,7 +62,7 @@ lists of comparable types.
 -}
 
 import Hash.Hamt as Hamt exposing (Tree)
-import FNV
+import Hash.FNV as FNV
 
 
 {-| A dictionary of keys and values. So a `(Dict String User)` is a dictionary
@@ -75,7 +75,7 @@ type alias Dict comparable v =
 
 hashFn : a -> Int
 hashFn =
-    toString >> FNV.hashString
+    FNV.hash
 
 
 {-| Create an empty dictionary.

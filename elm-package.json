@@ -12,7 +12,6 @@
     ],
     "native-modules": true,
     "dependencies": {
-        "Skinney/fnv": "1.0.0 <= v < 2.0.0",
         "elm-community/list-extra": "7.0.0 <= v < 8.0.0",
         "elm-lang/core": "5.0.0 <= v < 6.0.0"
     },
