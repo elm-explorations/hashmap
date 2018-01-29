@@ -139,29 +139,29 @@ getHelp shift hash key ls =
 
         blobPos =
             blobPosition pos ls.positionMap
+
+        mask =
+            Bitwise.shiftLeftBy pos 0x01
+
+        hasValue =
+            Bitwise.and ls.positionMap mask == mask
     in
-        case valueByIndex pos blobPos ls of
-            Nothing ->
-                Nothing
+        if hasValue then
+            case JsArray.unsafeGet blobPos ls.blobs of
+                Element _ eKey value ->
+                    if key == eKey then
+                        Just value
+                    else
+                        Nothing
 
-            Just node ->
-                case node of
-                    Element _ eKey value ->
-                        if key == eKey then
-                            Just value
-                        else
-                            Nothing
+                SubTree nodes ->
+                    getHelp (shift + 5) hash key nodes
 
-                    SubTree nodes ->
-                        getHelp (shift + 5) hash key nodes
-
-                    Collision _ vals ->
-                        case find (\( k, _ ) -> k == key) vals of
-                            Just ( _, value ) ->
-                                Just value
-
-                            Nothing ->
-                                Nothing
+                Collision _ vals ->
+                    Maybe.map Tuple.second
+                        (find (\( k, _ ) -> k == key) vals)
+        else
+            Nothing
 
 
 set : Int -> comparable -> v -> Tree comparable v -> Tree comparable v
