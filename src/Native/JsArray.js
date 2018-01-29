@@ -53,6 +53,23 @@ function unsafeSet(idx, val, arr) {
     return result;
 }
 
+    function unsafeInsert(idx, val, arr) {
+	var length = arr.length;
+	var result = new Array(length + 1);
+
+	for (var i = 0; i < idx; i++) {
+	    result[i] = arr[i];
+	}
+
+	result[idx] = val;
+
+	for (var i = idx; i < length; i++) {
+	    result[i + 1] = arr[i];
+	}
+
+	return result;
+    }
+
 function push(val, arr) {
     var length = arr.length;
     var result = new Array(length + 1);
@@ -139,6 +156,7 @@ return {
     initializeFromList: F2(initializeFromList),
     unsafeGet: F2(unsafeGet),
     unsafeSet: F3(unsafeSet),
+    unsafeInsert: F3(unsafeInsert),
     push: F2(push),
     foldl: F3(foldl),
     foldr: F3(foldr),

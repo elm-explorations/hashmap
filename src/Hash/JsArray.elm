@@ -8,6 +8,7 @@ module Hash.JsArray
         , initializeFromList
         , unsafeGet
         , unsafeSet
+        , unsafeInsert
         , push
         , foldl
         , foldr
@@ -124,6 +125,17 @@ Make sure you know the index is within bounds when using this function.
 unsafeSet : Int -> a -> JsArray a -> JsArray a
 unsafeSet =
     Native.JsArray.unsafeSet
+
+
+{-| Inserts element at given index.
+
+WARNING: This function does not perform bounds checking.
+Make sure you know the index is within bounds when using this function.
+
+-}
+unsafeInsert : Int -> a -> JsArray a -> JsArray a
+unsafeInsert =
+    Native.JsArray.unsafeInsert
 
 
 {-| Push an element onto the array.

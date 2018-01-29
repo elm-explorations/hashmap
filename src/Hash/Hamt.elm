@@ -54,7 +54,7 @@ setByIndex idx blobPos val ls =
             if shouldReplace then
                 JsArray.unsafeSet blobPos val ls.blobs
             else
-                insertAt blobPos val ls.blobs
+                JsArray.unsafeInsert blobPos val ls.blobs
     in
         { positionMap = alteredBitmap
         , blobs = newBlobs
@@ -100,18 +100,6 @@ removeAt idx arr =
             (JsArray.slice (idx + 1) (JsArray.length arr) arr)
     in
         JsArray.appendN 32 start end
-
-
-insertAt : Int -> Node comparable v -> Blobs comparable v -> Blobs comparable v
-insertAt idx node arr =
-    let
-        start =
-            JsArray.slice 0 idx arr
-
-        end =
-            (JsArray.slice idx (JsArray.length arr) arr)
-    in
-        JsArray.appendN 32 (JsArray.push node start) end
 
 
 hashPositionWithShift : Int -> Int -> Int
