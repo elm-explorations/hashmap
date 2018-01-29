@@ -10,7 +10,7 @@ module Hash.Hamt
         , size
         )
 
-import Array
+import Hash.JsArray as JsArray exposing (JsArray)
 import Bitwise
 import List.Extra exposing (find)
 
@@ -22,7 +22,7 @@ type alias Tree comparable v =
 
 
 type alias Blobs comparable v =
-    Array.Array (Node comparable v)
+    JsArray (Node comparable v)
 
 
 type Node comparable v
@@ -34,7 +34,7 @@ type Node comparable v
 empty : Tree comparable v
 empty =
     { positionMap = 0
-    , blobs = Array.empty
+    , blobs = JsArray.empty
     }
 
 
@@ -52,7 +52,7 @@ setByIndex idx blobPos val ls =
 
         newBlobs =
             if shouldReplace then
-                Array.set blobPos val ls.blobs
+                JsArray.unsafeSet blobPos val ls.blobs
             else
                 insertAt blobPos val ls.blobs
     in
@@ -71,7 +71,7 @@ valueByIndex idx blobPos ls =
             Bitwise.and ls.positionMap mask == mask
     in
         if hasValue then
-            Array.get blobPos ls.blobs
+            Just <| JsArray.unsafeGet blobPos ls.blobs
         else
             Nothing
 
@@ -94,24 +94,24 @@ removeAt : Int -> Blobs comparable v -> Blobs comparable v
 removeAt idx arr =
     let
         start =
-            Array.slice 0 idx arr
+            JsArray.slice 0 idx arr
 
         end =
-            (Array.slice (idx + 1) (Array.length arr) arr)
+            (JsArray.slice (idx + 1) (JsArray.length arr) arr)
     in
-        Array.append start end
+        JsArray.appendN 32 start end
 
 
 insertAt : Int -> Node comparable v -> Blobs comparable v -> Blobs comparable v
 insertAt idx node arr =
     let
         start =
-            Array.slice 0 idx arr
+            JsArray.slice 0 idx arr
 
         end =
-            (Array.slice idx (Array.length arr) arr)
+            (JsArray.slice idx (JsArray.length arr) arr)
     in
-        Array.append (Array.push node start) end
+        JsArray.appendN 32 (JsArray.push node start) end
 
 
 hashPositionWithShift : Int -> Int -> Int
@@ -285,13 +285,12 @@ removeHelp shift hash key nl =
                             newSub =
                                 removeHelp (shift + 5) hash key nodes
                         in
-                            if Array.length newSub.blobs == 1 then
-                                case Array.get 0 newSub.blobs of
-                                    Just v ->
-                                        setByIndex pos blobPos v nl
-
-                                    Nothing ->
-                                        Debug.crash "Cannot happen."
+                            if JsArray.length newSub.blobs == 1 then
+                                let
+                                    v =
+                                        JsArray.unsafeGet 0 newSub.blobs
+                                in
+                                    setByIndex pos blobPos v nl
                             else
                                 setByIndex pos blobPos (SubTree newSub) nl
 
@@ -313,7 +312,7 @@ removeHelp shift hash key nl =
 
 foldl : (comparable -> v -> a -> a) -> a -> Tree comparable v -> a
 foldl folder acc nl =
-    Array.foldl
+    JsArray.foldl
         (\node acc ->
             case node of
                 Element _ key val ->

@@ -10,6 +10,7 @@
         "Hash.Dict",
         "Hash.Set"
     ],
+    "native-modules": true,
     "dependencies": {
         "Skinney/fnv": "1.0.0 <= v < 2.0.0",
         "elm-community/list-extra": "7.0.0 <= v < 8.0.0",

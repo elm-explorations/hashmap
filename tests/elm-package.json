@@ -1,13 +1,14 @@
 {
     "version": "1.0.0",
     "summary": "Exploring the dict implementation",
-    "repository": "https://github.com/Skinney/elm-dict-exploration.git",
+    "repository": "https://github.com/Skinney/elm-hashmap-exploration.git",
     "license": "BSD-3-Clause",
     "source-directories": [
         ".",
         "../src"
     ],
     "exposed-modules": [],
+    "native-modules": true,
     "dependencies": {
         "elm-lang/core": "5.0.0 <= v < 6.0.0",
 	"elm-community/list-extra": "7.0.0 <= v < 8.0.0",	
