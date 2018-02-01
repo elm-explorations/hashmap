@@ -1,5 +1,6 @@
 var _Skinney$elm_hashmap_exploration$Native_FNV = function() {
-    var fnvPrime = Math.pow(2, 24) + Math.pow(2, 8) + 0x93;
+    var fnvPrime = 16777619;
+    var fnvOffset = 2166136261;
 
     function hash(object) {
 	switch (typeof object) {
@@ -12,34 +13,27 @@ var _Skinney$elm_hashmap_exploration$Native_FNV = function() {
     }
 
     function hashString(str) {
-	var current = 0;
+	var current = fnvOffset;
 
 	for (var i = 0, len = str.length; i < len; i++) {
 	    current = (current ^ str.charCodeAt(i)) * fnvPrime;
 	}
 
-	return current | 0;
+	return current >>> 0;
     }
 
     function hashNum(num) {
-	return num * fnvPrime;
+	return ((fnvOffset ^ num) * fnvPrime) >>> 0;
     }
 
     function hashObj(obj) {
-	var keys = [];
-	var current = 0;
+	var current = fnvOffset;
 
 	for (var key in obj) {
-	    keys.push(key);
+	    current = (current ^ hash(obj[key])) * fnvPrime;
 	}
 
-	keys.sort();
-
-	for (var idx = 0, len = keys.length; idx < len; idx++) {
-	    current = (current ^ hash(obj[keys[idx]])) * fnvPrime;
-	}
-
-	return current | 0;
+	return current >>> 0;
     }
 
 return {
