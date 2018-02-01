@@ -2,13 +2,13 @@ module Main exposing (main)
 
 import Benchmark.Runner exposing (BenchmarkProgram, program)
 import Benchmark exposing (Benchmark, describe, benchmark)
-import Dict as Dict
+import Dict.LLRB as Dict
 import Hash.Dict as Dict2
 
 
 main : BenchmarkProgram
 main =
-    program <| suite 1000
+    program <| suite 100
 
 
 suite : Int -> Benchmark
@@ -51,12 +51,12 @@ suite n =
     in
         describe (toString n ++ " elements")
             [ Benchmark.compare "Get"
-                "Core"
+                "LLRB"
                 (\_ -> getter Dict.get keys original)
                 "Hash"
                 (\_ -> getter Dict2.get keys updated)
             , Benchmark.compare "Insert"
-                "Core"
+                "LLRB"
                 (\_ -> Dict.fromList ls)
                 "Hash"
                 (\_ -> Dict2.fromList ls)
