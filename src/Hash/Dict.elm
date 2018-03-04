@@ -22,7 +22,6 @@ module Hash.Dict
         , union
         , intersect
         , diff
-        , merge
         )
 
 {-| A dictionary mapping unique keys to values. The keys can be any comparable
@@ -69,25 +68,20 @@ import Hash.FNV as FNV
 that lets you look up a `String` (such as user names) and find the associated
 `User`.
 -}
-type alias Dict comparable v =
-    Tree comparable v
-
-
-hashFn : a -> Int
-hashFn =
-    FNV.hash
+type alias Dict k v =
+    Tree k v
 
 
 {-| Create an empty dictionary.
 -}
-empty : Dict comparable v
+empty : Dict k v
 empty =
     Hamt.empty
 
 
 {-| Create a dictionary with one key-value pair.
 -}
-singleton : comparable -> v -> Dict comparable v
+singleton : k -> v -> Dict k v
 singleton key val =
     insert key val empty
 
@@ -97,14 +91,14 @@ singleton key val =
     isEmpty empty == True
 
 -}
-isEmpty : Dict comparable v -> Bool
+isEmpty : Dict k v -> Bool
 isEmpty dict =
     dict == Hamt.empty
 
 
 {-| Determine the number of key-value pairs in the dictionary.
 -}
-size : Dict comparable v -> Int
+size : Dict k v -> Int
 size =
     Hamt.size
 
@@ -120,14 +114,14 @@ dictionary.
     get "Spike" animals == Nothing
 
 -}
-get : comparable -> Dict comparable v -> Maybe v
+get : k -> Dict k v -> Maybe v
 get key dict =
-    Hamt.get (hashFn key) key dict
+    Hamt.get (FNV.hash key) key dict
 
 
 {-| Determine if a key is in a dictionary.
 -}
-member : comparable -> Dict comparable v -> Bool
+member : k -> Dict k v -> Bool
 member key dict =
     case get key dict of
         Just _ ->
@@ -140,14 +134,14 @@ member key dict =
 {-| Insert a key-value pair into a dictionary. Replaces value when there is
 a collision.
 -}
-insert : comparable -> v -> Dict comparable v -> Dict comparable v
+insert : k -> v -> Dict k v -> Dict k v
 insert key value dict =
-    Hamt.set (hashFn key) key value dict
+    Hamt.set (FNV.hash key) key value dict
 
 
 {-| Update the value of a dictionary for a specific key with a given function.
 -}
-update : comparable -> (Maybe v -> Maybe v) -> Dict comparable v -> Dict comparable v
+update : k -> (Maybe v -> Maybe v) -> Dict k v -> Dict k v
 update key fn dict =
     case fn <| get key dict of
         Just val ->
@@ -160,9 +154,9 @@ update key fn dict =
 {-| Remove a key-value pair from a dictionary. If the key is not found,
 no changes are made.
 -}
-remove : comparable -> Dict comparable v -> Dict comparable v
+remove : k -> Dict k v -> Dict k v
 remove key dict =
-    Hamt.remove (hashFn key) key dict
+    Hamt.remove (FNV.hash key) key dict
 
 
 
@@ -171,14 +165,14 @@ remove key dict =
 
 {-| Convert an association list into a dictionary.
 -}
-fromList : List ( comparable, v ) -> Dict comparable v
+fromList : List ( k, v ) -> Dict k v
 fromList list =
     List.foldl (\( key, value ) acc -> insert key value acc) empty list
 
 
 {-| Convert a dictionary into an association list of key-value pairs, sorted by keys.
 -}
-toList : Dict comparable v -> List ( comparable, v )
+toList : Dict k v -> List ( k, v )
 toList dict =
     foldl (\k v acc -> ( k, v ) :: acc) [] dict
 
@@ -188,7 +182,7 @@ toList dict =
     keys (fromList [(0,"Alice"),(1,"Bob")]) == [0,1]
 
 -}
-keys : Dict comparable v -> List comparable
+keys : Dict k v -> List k
 keys dict =
     foldl (\k _ acc -> k :: acc) [] dict
 
@@ -198,7 +192,7 @@ keys dict =
     values (fromList [(0,"Alice"),(1,"Bob")]) == ["Alice", "Bob"]
 
 -}
-values : Dict comparable v -> List v
+values : Dict k v -> List v
 values dict =
     foldl (\_ v acc -> v :: acc) [] dict
 
@@ -209,7 +203,7 @@ values dict =
 
 {-| Apply a function to all values in a dictionary.
 -}
-map : (comparable -> a -> b) -> Dict comparable a -> Dict comparable b
+map : (k -> a -> b) -> Dict k a -> Dict k b
 map f dict =
     Hamt.foldl (\key val acc -> insert key (f key val) acc) empty dict
 
@@ -217,7 +211,7 @@ map f dict =
 {-| Fold over the key-value pairs in a dictionary, in order from lowest
 key to highest key.
 -}
-foldl : (comparable -> v -> b -> b) -> b -> Dict comparable v -> b
+foldl : (k -> v -> b -> b) -> b -> Dict k v -> b
 foldl f acc dict =
     Hamt.foldl f acc dict
 
@@ -225,14 +219,14 @@ foldl f acc dict =
 {-| Fold over the key-value pairs in a dictionary, in order from highest
 key to lowest key.
 -}
-foldr : (comparable -> v -> b -> b) -> b -> Dict comparable v -> b
+foldr : (k -> v -> b -> b) -> b -> Dict k v -> b
 foldr f acc t =
     Hamt.foldl f acc t
 
 
 {-| Keep a key-value pair when it satisfies a predicate.
 -}
-filter : (comparable -> v -> Bool) -> Dict comparable v -> Dict comparable v
+filter : (k -> v -> Bool) -> Dict k v -> Dict k v
 filter predicate dictionary =
     let
         add key value dict =
@@ -248,7 +242,7 @@ filter predicate dictionary =
 contains all key-value pairs which satisfy the predicate, and the second
 contains the rest.
 -}
-partition : (comparable -> v -> Bool) -> Dict comparable v -> ( Dict comparable v, Dict comparable v )
+partition : (k -> v -> Bool) -> Dict k v -> ( Dict k v, Dict k v )
 partition predicate dict =
     let
         add key value ( t1, t2 ) =
@@ -267,7 +261,7 @@ partition predicate dict =
 {-| Combine two dictionaries. If there is a collision, preference is given
 to the first dictionary.
 -}
-union : Dict comparable v -> Dict comparable v -> Dict comparable v
+union : Dict k v -> Dict k v -> Dict k v
 union t1 t2 =
     foldl insert t2 t1
 
@@ -275,62 +269,13 @@ union t1 t2 =
 {-| Keep a key-value pair when its key appears in the second Dictionary.
 Preference is given to values in the first Dictionary.
 -}
-intersect : Dict comparable v -> Dict comparable v -> Dict comparable v
+intersect : Dict k v -> Dict k v -> Dict k v
 intersect t1 t2 =
     filter (\k _ -> member k t2) t1
 
 
 {-| Keep a key-value pair when its key does not appear in the second Dictionary.
 -}
-diff : Dict comparable v -> Dict comparable v -> Dict comparable v
+diff : Dict k v -> Dict k v -> Dict k v
 diff t1 t2 =
-    foldl (\k v t -> remove k t) t1 t2
-
-
-{-| The most general way of combining two dictionaries. You provide three
-accumulators for when a given key appears:
-
-1.  Only in the left dictionary.
-2.  In both dictionaries.
-3.  Only in the right dictionary.
-    You then traverse all the keys from lowest to highest, building up whatever
-    you want.
-
--}
-merge :
-    (comparable -> a -> result -> result)
-    -> (comparable -> a -> b -> result -> result)
-    -> (comparable -> b -> result -> result)
-    -> Dict comparable a
-    -> Dict comparable b
-    -> result
-    -> result
-merge leftStep bothStep rightStep leftDict rightDict initialResult =
-    let
-        stepState ( rKey, rValue ) ( list, result ) =
-            case list of
-                [] ->
-                    ( list, rightStep rKey rValue result )
-
-                ( lKey, lValue ) :: rest ->
-                    if lKey < rKey then
-                        stepState ( rKey, rValue ) ( rest, leftStep lKey lValue result )
-                    else if lKey > rKey then
-                        ( list, rightStep rKey rValue result )
-                    else
-                        ( rest, bothStep lKey lValue rValue result )
-
-        leftSortedPairs =
-            leftDict
-                |> toList
-                |> List.sortBy Tuple.first
-
-        rightSortedPairs =
-            rightDict
-                |> toList
-                |> List.sortBy Tuple.first
-
-        ( leftovers, intermediateResult ) =
-            List.foldl stepState ( leftSortedPairs, initialResult ) rightSortedPairs
-    in
-        List.foldl (\( k, v ) result -> leftStep k v result) intermediateResult leftovers
+    filter (\k v -> not <| member k t2) t1

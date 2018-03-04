@@ -121,52 +121,6 @@ tests =
                             )
                 ]
 
-        mergeTests =
-            let
-                insertBoth key leftVal rightVal dict =
-                    Dict.insert key (leftVal ++ rightVal) dict
-
-                s1 =
-                    Dict.empty |> Dict.insert "u1" [ 1 ]
-
-                s2 =
-                    Dict.empty |> Dict.insert "u2" [ 2 ]
-
-                s23 =
-                    Dict.empty |> Dict.insert "u2" [ 3 ]
-
-                b1 =
-                    List.map (\i -> ( i, [ i ] )) (List.range 1 10) |> Dict.fromList
-
-                b2 =
-                    List.map (\i -> ( i, [ i ] )) (List.range 5 15) |> Dict.fromList
-
-                bExpected =
-                    [ ( 1, [ 1 ] ), ( 2, [ 2 ] ), ( 3, [ 3 ] ), ( 4, [ 4 ] ), ( 5, [ 5, 5 ] ), ( 6, [ 6, 6 ] ), ( 7, [ 7, 7 ] ), ( 8, [ 8, 8 ] ), ( 9, [ 9, 9 ] ), ( 10, [ 10, 10 ] ), ( 11, [ 11 ] ), ( 12, [ 12 ] ), ( 13, [ 13 ] ), ( 14, [ 14 ] ), ( 15, [ 15 ] ) ]
-            in
-                describe "merge Tests"
-                    [ test "merge empties" <|
-                        \() ->
-                            Expect.equal (Dict.empty)
-                                (Dict.merge Dict.insert insertBoth Dict.insert Dict.empty Dict.empty Dict.empty)
-                    , test "merge singletons in order" <|
-                        \() ->
-                            Expect.equal [ ( "u1", [ 1 ] ), ( "u2", [ 2 ] ) ]
-                                ((Dict.merge Dict.insert insertBoth Dict.insert s1 s2 Dict.empty) |> comparisonList)
-                    , test "merge singletons out of order" <|
-                        \() ->
-                            Expect.equal [ ( "u1", [ 1 ] ), ( "u2", [ 2 ] ) ]
-                                ((Dict.merge Dict.insert insertBoth Dict.insert s2 s1 Dict.empty) |> comparisonList)
-                    , test "merge with duplicate key" <|
-                        \() ->
-                            Expect.equal [ ( "u2", [ 2, 3 ] ) ]
-                                ((Dict.merge Dict.insert insertBoth Dict.insert s2 s23 Dict.empty) |> comparisonList)
-                    , test "partially overlapping" <|
-                        \() ->
-                            Expect.equal bExpected
-                                ((Dict.merge Dict.insert insertBoth Dict.insert b1 b2 Dict.empty) |> comparisonList)
-                    ]
-
         fuzzTests =
             describe "Fuzz tests"
                 [ fuzz2 fuzzPairs pairRange "Get works" <|
@@ -204,6 +158,5 @@ tests =
             , queryTests
             , combineTests
             , transformTests
-            , mergeTests
             , fuzzTests
             ]

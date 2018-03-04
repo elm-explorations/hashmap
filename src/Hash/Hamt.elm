@@ -15,30 +15,30 @@ import Bitwise
 import List.Extra exposing (find)
 
 
-type alias Tree comparable v =
+type alias Tree k v =
     { positionMap : Int
-    , blobs : Blobs comparable v
+    , blobs : Blobs k v
     }
 
 
-type alias Blobs comparable v =
-    JsArray (Node comparable v)
+type alias Blobs k v =
+    JsArray (Node k v)
 
 
-type Node comparable v
-    = Element Int comparable v
-    | SubTree (Tree comparable v)
-    | Collision Int (List ( comparable, v ))
+type Node k v
+    = Element Int k v
+    | SubTree (Tree k v)
+    | Collision Int (List ( k, v ))
 
 
-empty : Tree comparable v
+empty : Tree k v
 empty =
     { positionMap = 0
     , blobs = JsArray.empty
     }
 
 
-setByIndex : Int -> Int -> Node comparable v -> Tree comparable v -> Tree comparable v
+setByIndex : Int -> Int -> Node k v -> Tree k v -> Tree k v
 setByIndex idx blobPos val ls =
     let
         mask =
@@ -61,7 +61,7 @@ setByIndex idx blobPos val ls =
         }
 
 
-valueByIndex : Int -> Int -> Tree comparable v -> Maybe (Node comparable v)
+valueByIndex : Int -> Int -> Tree k v -> Maybe (Node k v)
 valueByIndex idx blobPos ls =
     let
         mask =
@@ -76,7 +76,7 @@ valueByIndex idx blobPos ls =
             Nothing
 
 
-removeByIndex : Int -> Int -> Tree comparable v -> Tree comparable v
+removeByIndex : Int -> Int -> Tree k v -> Tree k v
 removeByIndex idx blobPos ls =
     let
         mask =
@@ -90,7 +90,7 @@ removeByIndex idx blobPos ls =
         }
 
 
-removeAt : Int -> Blobs comparable v -> Blobs comparable v
+removeAt : Int -> Blobs k v -> Blobs k v
 removeAt idx arr =
     let
         start =
@@ -126,12 +126,12 @@ countBits bitmap =
         Bitwise.shiftRightZfBy 24 ((Bitwise.and (b2 + (Bitwise.shiftRightZfBy 4 b2)) 0x0F0F0F0F) * 0x01010101)
 
 
-get : Int -> comparable -> Tree comparable v -> Maybe v
+get : Int -> k -> Tree k v -> Maybe v
 get hash key ls =
     getHelp 0 hash key ls
 
 
-getHelp : Int -> Int -> comparable -> Tree comparable v -> Maybe v
+getHelp : Int -> Int -> k -> Tree k v -> Maybe v
 getHelp shift hash key ls =
     let
         pos =
@@ -164,12 +164,12 @@ getHelp shift hash key ls =
             Nothing
 
 
-set : Int -> comparable -> v -> Tree comparable v -> Tree comparable v
+set : Int -> k -> v -> Tree k v -> Tree k v
 set hash key val ls =
     setHelp 0 hash key val ls
 
 
-setHelp : Int -> Int -> comparable -> v -> Tree comparable v -> Tree comparable v
+setHelp : Int -> Int -> k -> v -> Tree k v -> Tree k v
 setHelp shift hash key val ls =
     let
         pos =
@@ -194,10 +194,7 @@ setHelp shift hash key val ls =
                             else
                                 let
                                     element =
-                                        if key < xKey then
-                                            Collision hash [ ( key, val ), ( xKey, xVal ) ]
-                                        else
-                                            Collision hash [ ( xKey, xVal ), ( key, val ) ]
+                                        Collision hash [ ( key, val ), ( xKey, xVal ) ]
                                 in
                                     setByIndex pos blobPos element ls
                         else
@@ -213,10 +210,7 @@ setHelp shift hash key val ls =
                         if xHash == hash then
                             let
                                 newNodes =
-                                    nodes
-                                        |> List.filter (\( k, _ ) -> k /= key)
-                                        |> ((::) ( key, val ))
-                                        |> List.sortBy Tuple.first
+                                    ( key, val ) :: (List.filter (\( k, _ ) -> k /= key) nodes)
                             in
                                 setByIndex pos blobPos (Collision hash newNodes) ls
                         else
@@ -242,12 +236,12 @@ setHelp shift hash key val ls =
                             setByIndex pos blobPos (SubTree sub) ls
 
 
-remove : Int -> comparable -> Tree comparable v -> Tree comparable v
+remove : Int -> k -> Tree k v -> Tree k v
 remove hash key nl =
     removeHelp 0 hash key nl
 
 
-removeHelp : Int -> Int -> comparable -> Tree comparable v -> Tree comparable v
+removeHelp : Int -> Int -> k -> Tree k v -> Tree k v
 removeHelp shift hash key nl =
     let
         pos =
@@ -298,7 +292,7 @@ removeHelp shift hash key nl =
                                 setByIndex pos blobPos (Collision hash newCollision) nl
 
 
-foldl : (comparable -> v -> a -> a) -> a -> Tree comparable v -> a
+foldl : (k -> v -> a -> a) -> a -> Tree k v -> a
 foldl folder acc nl =
     JsArray.foldl
         (\node acc ->
@@ -320,6 +314,6 @@ foldl folder acc nl =
         nl.blobs
 
 
-size : Tree comparable v -> Int
+size : Tree k v -> Int
 size nl =
     foldl (\_ _ acc -> acc + 1) 0 nl
