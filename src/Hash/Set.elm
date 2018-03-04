@@ -8,8 +8,7 @@ module Hash.Set
         , isEmpty
         , member
         , size
-        , foldl
-        , foldr
+        , fold
         , map
         , filter
         , partition
@@ -52,7 +51,7 @@ of a types.
 
 # Transform
 
-@docs map, foldl, foldr, filter, partition
+@docs map, fold, filter, partition
 
 -}
 
@@ -151,18 +150,11 @@ fromList xs =
     List.foldl insert empty xs
 
 
-{-| Fold over the values in a set, in order from lowest to highest.
+{-| Fold over the values in a set.
 -}
-foldl : (a -> b -> b) -> b -> Set a -> b
-foldl f b d =
-    Dict.foldr (\k _ b -> f k b) b d
-
-
-{-| Fold over the values in a set, in order from highest to lowest.
--}
-foldr : (a -> b -> b) -> b -> Set a -> b
-foldr f b d =
-    Dict.foldr (\k _ b -> f k b) b d
+fold : (a -> b -> b) -> b -> Set a -> b
+fold f b d =
+    Dict.fold (\k _ b -> f k b) b d
 
 
 {-| Map a function onto a set, creating a new set with no duplicates.

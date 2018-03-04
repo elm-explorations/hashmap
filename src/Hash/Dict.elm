@@ -15,8 +15,7 @@ module Hash.Dict
         , keys
         , values
         , map
-        , foldl
-        , foldr
+        , fold
         , filter
         , partition
         , union
@@ -56,7 +55,7 @@ lists of comparable types.
 
 # Transform
 
-@docs map, foldl, foldr, filter, partition
+@docs map, fold, filter, partition
 
 -}
 
@@ -174,7 +173,7 @@ fromList list =
 -}
 toList : Dict k v -> List ( k, v )
 toList dict =
-    foldl (\k v acc -> ( k, v ) :: acc) [] dict
+    fold (\k v acc -> ( k, v ) :: acc) [] dict
 
 
 {-| Get all of the keys in a dictionary, sorted from lowest to highest.
@@ -184,7 +183,7 @@ toList dict =
 -}
 keys : Dict k v -> List k
 keys dict =
-    foldl (\k _ acc -> k :: acc) [] dict
+    fold (\k _ acc -> k :: acc) [] dict
 
 
 {-| Get all of the values in a dictionary, in the order of their keys.
@@ -194,7 +193,7 @@ keys dict =
 -}
 values : Dict k v -> List v
 values dict =
-    foldl (\_ v acc -> v :: acc) [] dict
+    fold (\_ v acc -> v :: acc) [] dict
 
 
 
@@ -208,20 +207,11 @@ map f dict =
     Hamt.foldl (\key val acc -> insert key (f key val) acc) empty dict
 
 
-{-| Fold over the key-value pairs in a dictionary, in order from lowest
-key to highest key.
+{-| Fold over the key-value pairs in a dictionary.
 -}
-foldl : (k -> v -> b -> b) -> b -> Dict k v -> b
-foldl f acc dict =
+fold : (k -> v -> b -> b) -> b -> Dict k v -> b
+fold f acc dict =
     Hamt.foldl f acc dict
-
-
-{-| Fold over the key-value pairs in a dictionary, in order from highest
-key to lowest key.
--}
-foldr : (k -> v -> b -> b) -> b -> Dict k v -> b
-foldr f acc t =
-    Hamt.foldl f acc t
 
 
 {-| Keep a key-value pair when it satisfies a predicate.
@@ -235,7 +225,7 @@ filter predicate dictionary =
             else
                 dict
     in
-        foldl add empty dictionary
+        fold add empty dictionary
 
 
 {-| Partition a dictionary according to a predicate. The first dictionary
@@ -251,7 +241,7 @@ partition predicate dict =
             else
                 ( t1, insert key value t2 )
     in
-        foldl add ( empty, empty ) dict
+        fold add ( empty, empty ) dict
 
 
 
@@ -263,7 +253,7 @@ to the first dictionary.
 -}
 union : Dict k v -> Dict k v -> Dict k v
 union t1 t2 =
-    foldl insert t2 t1
+    fold insert t2 t1
 
 
 {-| Keep a key-value pair when its key appears in the second Dictionary.
