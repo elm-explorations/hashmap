@@ -19,9 +19,7 @@ module Hash.Set
         , fromList
         )
 
-{-| A set of unique values. The values can be any comparable type. This
-includes `Int`, `Float`, `Time`, `Char`, `String`, and tuples or lists
-of a types.
+{-| A set of unique values.
 
 
 # Sets
@@ -136,7 +134,7 @@ diff d1 d2 =
     Dict.diff d1 d2
 
 
-{-| Convert a set into a list, sorted from lowest to highest.
+{-| Convert a set into a list.
 -}
 toList : Set a -> List a
 toList d =

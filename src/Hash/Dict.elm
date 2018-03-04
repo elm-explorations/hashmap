@@ -23,9 +23,7 @@ module Hash.Dict
         , diff
         )
 
-{-| A dictionary mapping unique keys to values. The keys can be any comparable
-type. This includes `Int`, `Float`, `Time`, `Char`, `String`, and tuples or
-lists of comparable types.
+{-| A dictionary mapping unique keys to values.
 
 
 # Dictionary
@@ -169,14 +167,14 @@ fromList list =
     List.foldl (\( key, value ) acc -> insert key value acc) empty list
 
 
-{-| Convert a dictionary into an association list of key-value pairs, sorted by keys.
+{-| Convert a dictionary into an association list of key-value pairs.
 -}
 toList : Dict k v -> List ( k, v )
 toList dict =
     fold (\k v acc -> ( k, v ) :: acc) [] dict
 
 
-{-| Get all of the keys in a dictionary, sorted from lowest to highest.
+{-| Get all of the keys in a dictionary.
 
     keys (fromList [(0,"Alice"),(1,"Bob")]) == [0,1]
 
