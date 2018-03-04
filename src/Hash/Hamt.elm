@@ -267,29 +267,19 @@ removeHelp shift hash key nl =
                             newSub =
                                 removeHelp (shift + 5) hash key nodes
                         in
-                            if JsArray.length newSub.blobs == 1 then
-                                let
-                                    v =
-                                        JsArray.unsafeGet 0 newSub.blobs
-                                in
-                                    setByIndex pos blobPos v nl
-                            else
-                                setByIndex pos blobPos (SubTree newSub) nl
+                            setByIndex pos blobPos (SubTree newSub) nl
 
                     Collision _ vals ->
                         let
                             newCollision =
                                 List.filter (\( k, _ ) -> k /= key) vals
                         in
-                            if List.length newCollision == 1 then
-                                case List.head newCollision of
-                                    Just ( k, v ) ->
-                                        setByIndex pos blobPos (Element hash k v) nl
+                            case newCollision of
+                                [] ->
+                                    removeByIndex pos blobPos nl
 
-                                    Nothing ->
-                                        Debug.crash "This should not happen."
-                            else
-                                setByIndex pos blobPos (Collision hash newCollision) nl
+                                _ ->
+                                    setByIndex pos blobPos (Collision hash newCollision) nl
 
 
 foldl : (k -> v -> a -> a) -> a -> Tree k v -> a

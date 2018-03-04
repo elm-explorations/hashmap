@@ -266,4 +266,4 @@ intersect t1 t2 =
 -}
 diff : Dict k v -> Dict k v -> Dict k v
 diff t1 t2 =
-    filter (\k v -> not <| member k t2) t1
+    fold (\k _ t -> remove k t) t1 t2
