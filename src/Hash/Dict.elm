@@ -465,25 +465,65 @@ fold fn acc (Dict _ arr) =
         arr
 
 
+foldWithHash : (Int -> k -> v -> b -> b) -> b -> Dict k v -> b
+foldWithHash fn acc (Dict _ arr) =
+    JsArray.foldl
+        (\node acc ->
+            case node of
+                Element hash key val ->
+                    fn hash key val acc
+
+                SubTree nodes ->
+                    foldWithHash fn acc nodes
+
+                Collision hash vals ->
+                    let
+                        colFold ( k, v ) acc =
+                            fn hash k v acc
+                    in
+                        List.foldl colFold acc vals
+        )
+        acc
+        arr
+
+
 {-| Apply a function to all values in a dictionary.
 -}
 map : (k -> a -> b) -> Dict k a -> Dict k b
-map f dict =
-    fold (\key val acc -> insert key (f key val) acc) empty dict
+map fn (Dict posMap nodes) =
+    Dict posMap
+        (JsArray.map
+            (\node ->
+                case node of
+                    Element hash key val ->
+                        Element hash key (fn key val)
+
+                    SubTree subDict ->
+                        SubTree (map fn subDict)
+
+                    Collision hash vals ->
+                        let
+                            helper ( k, v ) =
+                                ( k, fn k v )
+                        in
+                            Collision hash (List.map helper vals)
+            )
+            nodes
+        )
 
 
 {-| Keep a key-value pair when it satisfies a predicate.
 -}
 filter : (k -> v -> Bool) -> Dict k v -> Dict k v
-filter predicate dictionary =
+filter predicate dict =
     let
-        add key value dict =
+        helper hash key value dict =
             if predicate key value then
-                insert key value dict
+                insertHelp 0 hash key value dict
             else
                 dict
     in
-        fold add empty dictionary
+        foldWithHash helper empty dict
 
 
 {-| Partition a dictionary according to a predicate. The first dictionary
@@ -493,13 +533,13 @@ contains the rest.
 partition : (k -> v -> Bool) -> Dict k v -> ( Dict k v, Dict k v )
 partition predicate dict =
     let
-        add key value ( t1, t2 ) =
+        helper hash key value ( t1, t2 ) =
             if predicate key value then
-                ( insert key value t1, t2 )
+                ( insertHelp 0 hash key value t1, t2 )
             else
-                ( t1, insert key value t2 )
+                ( t1, insertHelp 0 hash key value t2 )
     in
-        fold add ( empty, empty ) dict
+        foldWithHash helper ( empty, empty ) dict
 
 
 
@@ -511,7 +551,7 @@ to the first dictionary.
 -}
 union : Dict k v -> Dict k v -> Dict k v
 union t1 t2 =
-    fold insert t2 t1
+    foldWithHash (\h k v t -> insertHelp 0 h k v t) t2 t1
 
 
 {-| Keep a key-value pair when its key appears in the second Dictionary.
@@ -519,11 +559,20 @@ Preference is given to values in the first Dictionary.
 -}
 intersect : Dict k v -> Dict k v -> Dict k v
 intersect t1 t2 =
-    filter (\k _ -> member k t2) t1
+    let
+        helper h k v t =
+            case getHelp 0 h k t2 of
+                Just _ ->
+                    insertHelp 0 h k v t
+
+                Nothing ->
+                    t
+    in
+        foldWithHash helper empty t1
 
 
 {-| Keep a key-value pair when its key does not appear in the second Dictionary.
 -}
 diff : Dict k v -> Dict k v -> Dict k v
 diff t1 t2 =
-    fold (\k _ t -> remove k t) t1 t2
+    foldWithHash (\h k _ t -> removeHelp 0 h k t) t1 t2
