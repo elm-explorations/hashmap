@@ -57,23 +57,119 @@ module Hash.Dict
 
 -}
 
-import Hash.Hamt as Hamt exposing (Tree)
+import Bitwise
+import List.Extra as List
 import Hash.FNV as FNV
+import Hash.JsArray as JsArray exposing (JsArray)
 
 
 {-| A dictionary of keys and values. So a `(Dict String User)` is a dictionary
 that lets you look up a `String` (such as user names) and find the associated
 `User`.
 -}
-type alias Dict k v =
-    Tree k v
+type Dict k v
+    = Dict Int (NodeArray k v)
+
+
+type alias NodeArray k v =
+    JsArray (Node k v)
+
+
+type Node k v
+    = Element Int k v
+    | SubTree (Dict k v)
+    | Collision Int (List ( k, v ))
+
+
+valueByIndex : Int -> Int -> Dict k v -> Maybe (Node k v)
+valueByIndex idx nodePos (Dict positionMap nodes) =
+    let
+        mask =
+            Bitwise.shiftLeftBy idx 0x01
+
+        hasValue =
+            Bitwise.and positionMap mask == mask
+    in
+        if hasValue then
+            Just <| JsArray.unsafeGet nodePos nodes
+        else
+            Nothing
+
+
+setByIndex : Int -> Int -> Node k v -> Dict k v -> Dict k v
+setByIndex idx nodePos val (Dict positionMap nodes) =
+    let
+        mask =
+            Bitwise.shiftLeftBy idx 0x01
+
+        alteredBitmap =
+            Bitwise.or positionMap mask
+
+        shouldReplace =
+            Bitwise.and positionMap mask == mask
+
+        newNodeArray =
+            if shouldReplace then
+                JsArray.unsafeSet nodePos val nodes
+            else
+                JsArray.unsafeInsert nodePos val nodes
+    in
+        Dict alteredBitmap newNodeArray
+
+
+removeByIndex : Int -> Int -> Dict k v -> Dict k v
+removeByIndex idx nodePos (Dict positionMap nodes) =
+    let
+        mask =
+            Bitwise.shiftLeftBy idx 0x01
+
+        alteredBitmap =
+            Bitwise.xor positionMap mask
+    in
+        Dict alteredBitmap (removeAt nodePos nodes)
+
+
+removeAt : Int -> NodeArray k v -> NodeArray k v
+removeAt idx arr =
+    let
+        start =
+            JsArray.slice 0 idx arr
+
+        end =
+            (JsArray.slice (idx + 1) (JsArray.length arr) arr)
+    in
+        JsArray.appendN 32 start end
+
+
+hashPositionWithShift : Int -> Int -> Int
+hashPositionWithShift shift hash =
+    Bitwise.and 0x1F <| Bitwise.shiftRightZfBy shift hash
+
+
+nodePosition : Int -> Int -> Int
+nodePosition idx posMap =
+    countSetBits (Bitwise.shiftLeftBy 1 (Bitwise.shiftLeftBy (31 - idx) posMap))
+
+
+{-| No idea how this works. Stole code from stack overflow.
+-}
+countSetBits : Int -> Int
+countSetBits bitmap =
+    let
+        b1 =
+            bitmap - (Bitwise.and (Bitwise.shiftRightZfBy 1 bitmap) 0x55555555)
+
+        b2 =
+            (Bitwise.and b1 0x33333333) + (Bitwise.and (Bitwise.shiftRightZfBy 2 b1) 0x33333333)
+    in
+        Bitwise.shiftRightZfBy 24 ((Bitwise.and (b2 + (Bitwise.shiftRightZfBy 4 b2)) 0x0F0F0F0F) * 0x01010101)
 
 
 {-| Create an empty dictionary.
 -}
 empty : Dict k v
 empty =
-    Hamt.empty
+    Dict 0 JsArray.empty
 
 
 {-| Create a dictionary with one key-value pair.
@@ -89,15 +185,15 @@ singleton key val =
 
 -}
 isEmpty : Dict k v -> Bool
-isEmpty dict =
-    dict == Hamt.empty
+isEmpty (Dict _ arr) =
+    arr == JsArray.empty
 
 
 {-| Determine the number of key-value pairs in the dictionary.
 -}
 size : Dict k v -> Int
-size =
-    Hamt.size
+size dict =
+    fold (\_ _ acc -> acc + 1) 0 dict
 
 
 {-| Get the value associated with a key. If the key is not found, return
@@ -113,7 +209,37 @@ dictionary.
 -}
 get : k -> Dict k v -> Maybe v
 get key dict =
-    Hamt.get (FNV.hash key) key dict
+    getHelp 0 (FNV.hash key) key dict
+
+
+getHelp : Int -> Int -> k -> Dict k v -> Maybe v
+getHelp shift hash key (Dict positionMap nodes) =
+    let
+        pos =
+            hashPositionWithShift shift hash
+
+        mask =
+            Bitwise.shiftLeftBy pos 0x01
+
+        hasValue =
+            Bitwise.and positionMap mask == mask
+    in
+        if hasValue then
+            case JsArray.unsafeGet (nodePosition pos positionMap) nodes of
+                Element _ eKey value ->
+                    if key == eKey then
+                        Just value
+                    else
+                        Nothing
+
+                SubTree subNodes ->
+                    getHelp (shift + 5) hash key subNodes
+
+                Collision _ vals ->
+                    Maybe.map Tuple.second
+                        (List.find (\( k, _ ) -> k == key) vals)
+        else
+            Nothing
 
 
 {-| Determine if a key is in a dictionary.
@@ -128,24 +254,81 @@ member key dict =
             False
 
 
-{-| Insert a key-value pair into a dictionary. Replaces value when there is
+{-| Insert a key-value pair into the dictionary. Replaces value when there is
 a collision.
 -}
 insert : k -> v -> Dict k v -> Dict k v
 insert key value dict =
-    Hamt.set (FNV.hash key) key value dict
+    insertHelp 0 (FNV.hash key) key value dict
 
 
-{-| Update the value of a dictionary for a specific key with a given function.
--}
-update : k -> (Maybe v -> Maybe v) -> Dict k v -> Dict k v
-update key fn dict =
-    case fn <| get key dict of
-        Just val ->
-            insert key val dict
+insertHelp : Int -> Int -> k -> v -> Dict k v -> Dict k v
+insertHelp shift hash key val ((Dict positionMap _) as dict) =
+    let
+        pos =
+            hashPositionWithShift shift hash
 
-        Nothing ->
-            remove key dict
+        blobPos =
+            nodePosition pos positionMap
+
+        newShift =
+            shift + 5
+    in
+        case valueByIndex pos blobPos dict of
+            Nothing ->
+                setByIndex pos blobPos (Element hash key val) dict
+
+            Just currValue ->
+                case currValue of
+                    Element xHash xKey xVal ->
+                        if xHash == hash then
+                            if xKey == key then
+                                setByIndex pos blobPos (Element hash key val) dict
+                            else
+                                let
+                                    element =
+                                        Collision hash [ ( key, val ), ( xKey, xVal ) ]
+                                in
+                                    setByIndex pos blobPos element dict
+                        else
+                            let
+                                subNodes =
+                                    empty
+                                        |> insertHelp newShift xHash xKey xVal
+                                        |> insertHelp newShift hash key val
+                                        |> SubTree
+                            in
+                                setByIndex pos blobPos subNodes dict
+
+                    SubTree subNodes ->
+                        let
+                            sub =
+                                insertHelp newShift hash key val subNodes
+                        in
+                            setByIndex pos blobPos (SubTree sub) dict
+
+                    Collision xHash subNodes ->
+                        if xHash == hash then
+                            let
+                                newNodes =
+                                    ( key, val ) :: (List.filter (\( k, _ ) -> k /= key) subNodes)
+                            in
+                                setByIndex pos blobPos (Collision hash newNodes) dict
+                        else
+                            let
+                                collisionPos =
+                                    hashPositionWithShift newShift xHash
+
+                                collisionBlobPos =
+                                    nodePosition collisionPos 0
+
+                                newNodes =
+                                    empty
+                                        |> setByIndex collisionPos collisionBlobPos currValue
+                                        |> insertHelp newShift hash key val
+                                        |> SubTree
+                            in
+                                setByIndex pos blobPos newNodes dict
 
 
 {-| Remove a key-value pair from a dictionary. If the key is not found,
@@ -153,7 +336,67 @@ no changes are made.
 -}
 remove : k -> Dict k v -> Dict k v
 remove key dict =
-    Hamt.remove (FNV.hash key) key dict
+    removeHelp 0 (FNV.hash key) key dict
+
+
+removeHelp : Int -> Int -> k -> Dict k v -> Dict k v
+removeHelp shift hash key ((Dict positionMap _) as dict) =
+    let
+        pos =
+            hashPositionWithShift shift hash
+
+        nodePos =
+            nodePosition pos positionMap
+    in
+        case valueByIndex pos nodePos dict of
+            Nothing ->
+                dict
+
+            Just node ->
+                case node of
+                    Element _ eKey value ->
+                        if eKey == key then
+                            removeByIndex pos nodePos dict
+                        else
+                            dict
+
+                    SubTree subDict ->
+                        let
+                            newNodes =
+                                removeHelp (shift + 5) hash key subDict
+                        in
+                            setByIndex pos nodePos (SubTree newNodes) dict
+
+                    Collision _ vals ->
+                        let
+                            newCollision =
+                                List.filter (\( k, _ ) -> k /= key) vals
+                        in
+                            case newCollision of
+                                [] ->
+                                    removeByIndex pos nodePos dict
+
+                                ( eKey, eVal ) :: [] ->
+                                    setByIndex pos nodePos (Element hash eKey eVal) dict
+
+                                _ ->
+                                    setByIndex pos nodePos (Collision hash newCollision) dict
+
+
+{-| Update the value of a dictionary for a specific key with a given function.
+-}
+update : k -> (Maybe v -> Maybe v) -> Dict k v -> Dict k v
+update key fn dict =
+    let
+        hash =
+            FNV.hash key
+    in
+        case fn <| getHelp 0 hash key dict of
+            Nothing ->
+                removeHelp 0 hash key dict
+
+            Just val ->
+                insertHelp 0 hash key val dict
 
 
 
@@ -198,18 +441,35 @@ values dict =
 -- TRANSFORM
 
 
+{-| Fold over the key-value pairs in a dictionary.
+-}
+fold : (k -> v -> b -> b) -> b -> Dict k v -> b
+fold fn acc (Dict _ arr) =
+    JsArray.foldl
+        (\node acc ->
+            case node of
+                Element _ key val ->
+                    fn key val acc
+
+                SubTree nodes ->
+                    fold fn acc nodes
+
+                Collision _ vals ->
+                    let
+                        colFold ( k, v ) acc =
+                            fn k v acc
+                    in
+                        List.foldl colFold acc vals
+        )
+        acc
+        arr
+
+
 {-| Apply a function to all values in a dictionary.
 -}
 map : (k -> a -> b) -> Dict k a -> Dict k b
 map f dict =
-    Hamt.foldl (\key val acc -> insert key (f key val) acc) empty dict
-
-
-{-| Fold over the key-value pairs in a dictionary.
--}
-fold : (k -> v -> b -> b) -> b -> Dict k v -> b
-fold f acc dict =
-    Hamt.foldl f acc dict
+    fold (\key val acc -> insert key (f key val) acc) empty dict
 
 
 {-| Keep a key-value pair when it satisfies a predicate.
