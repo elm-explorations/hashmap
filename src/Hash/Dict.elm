@@ -126,19 +126,7 @@ removeByIndex idx nodePos (Dict positionMap nodes) =
         alteredBitmap =
             Bitwise.xor positionMap mask
     in
-        Dict alteredBitmap (removeAt nodePos nodes)
-
-
-removeAt : Int -> NodeArray k v -> NodeArray k v
-removeAt idx arr =
-    let
-        start =
-            JsArray.slice 0 idx arr
-
-        end =
-            (JsArray.slice (idx + 1) (JsArray.length arr) arr)
-    in
-        JsArray.appendN 32 start end
+        Dict alteredBitmap (JsArray.removeIndex nodePos nodes)
 
 
 hashPositionWithShift : Int -> Int -> Int

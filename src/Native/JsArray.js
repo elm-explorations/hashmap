@@ -70,6 +70,21 @@ function unsafeSet(idx, val, arr) {
 	return result;
     }
 
+    function removeIndex(idx, arr) {
+	var length = arr.length;
+	var result = new Array(length - 1);
+
+	for (var i = 0; i < idx; i++) {
+	    result[i] = arr[i];
+	}
+
+	for (var i = idx + 1; i < length; i++) {
+	    result[i - 1] = arr[i];
+	}
+
+	return result;
+    }
+
 function push(val, arr) {
     var length = arr.length;
     var result = new Array(length + 1);
@@ -157,6 +172,7 @@ return {
     unsafeGet: F2(unsafeGet),
     unsafeSet: F3(unsafeSet),
     unsafeInsert: F3(unsafeInsert),
+    removeIndex: F2(removeIndex),
     push: F2(push),
     foldl: F3(foldl),
     foldr: F3(foldr),

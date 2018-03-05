@@ -9,6 +9,7 @@ module Hash.JsArray
         , unsafeGet
         , unsafeSet
         , unsafeInsert
+        , removeIndex
         , push
         , foldl
         , foldr
@@ -36,7 +37,7 @@ For general purpose use, try the `Array` module instead.
 
 # Basics
 
-@docs length, unsafeGet, unsafeSet, push
+@docs length, unsafeGet, unsafeSet, unsafeInsert, removeIndex, push
 
 
 # Transformation
@@ -136,6 +137,14 @@ Make sure you know the index is within bounds when using this function.
 unsafeInsert : Int -> a -> JsArray a -> JsArray a
 unsafeInsert =
     Native.JsArray.unsafeInsert
+
+
+{-| Returns an array without the element stored at index n. If index is out of range, a copy
+of the same array is returned.
+-}
+removeIndex : Int -> JsArray a -> JsArray a
+removeIndex =
+    Native.JsArray.removeIndex
 
 
 {-| Push an element onto the array.
