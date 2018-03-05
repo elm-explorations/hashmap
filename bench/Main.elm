@@ -80,6 +80,16 @@ suite n =
                 (\_ -> updater Dict.update (\_ -> Nothing) keys original)
                 "Hash"
                 (\_ -> updater Dict2.update (\_ -> Nothing) keys updated)
+            , Benchmark.compare "Map"
+                "Core"
+                (\_ -> Dict.map (\k v -> v + 1) original)
+                "Hash"
+                (\_ -> Dict2.map (\k v -> v + 1) updated)
+            , Benchmark.compare "Filter"
+                "Core"
+                (\_ -> Dict.filter (\k v -> v % 2 == 0) original)
+                "Hash"
+                (\_ -> Dict2.filter (\k v -> v % 2 == 0) updated)
             , Benchmark.compare "Union"
                 "Core"
                 (\_ -> Dict.union original originalSetDict)
