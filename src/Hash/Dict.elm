@@ -67,7 +67,21 @@ import Hash.JsArray as JsArray exposing (JsArray)
 that lets you look up a `String` (such as user names) and find the associated
 `User`.
 -}
-type Dict k v
+type
+    Dict k v
+    -- The first argument is a bitmap (32 bits). If a bit is set, it means
+    -- that a value is stored at that index (NodeArray is 32 in size).
+    -- NodeArray contains Nodes (look below).
+    --
+    -- A Dict is essentially an Array. We use a hash function to convert the
+    -- key to an Int, which we use as an index.
+    -- Since the hash function doesn't return sequential values, we use a
+    -- bitmap to compress the NodeArray. The actual index of a key depends
+    -- on how many bits are set before the actual index in the bitmap.
+    --
+    -- Example: The hash for key '0' tells us that the element should be
+    -- stored at index 9. In the bitmap, there are no set bits (ones) before
+    -- index 9, so we actually store the key-value pair at index 0.
     = Dict Int (NodeArray k v)
 
 
@@ -75,12 +89,22 @@ type alias NodeArray k v =
     JsArray (Node k v)
 
 
-type Node k v
+type
+    Node k v
+    -- In addition to Element's and SubTree's (read the code for Array for more info)
+    -- we also have to consider Collisions. A hash function can potentially return
+    -- the same hash for two different keys. In that case we store the key-value
+    -- pairs in a list, and need to run an equality check when retrieving, or removing,
+    -- said key. If we use a hash-function which causes a lot of collisions, our Dict
+    -- essentially degrades into a List.
     = Element Int k v
     | SubTree (Dict k v)
     | Collision Int (List ( k, v ))
 
 
+{-| Given the supposed index and the compressed index, return a value from
+the designated space in the NodeArray.
+-}
 valueByIndex : Int -> Int -> Dict k v -> Maybe (Node k v)
 valueByIndex idx nodePos (Dict positionMap nodes) =
     let
@@ -96,6 +120,9 @@ valueByIndex idx nodePos (Dict positionMap nodes) =
             Nothing
 
 
+{-| Insert a Node at the position indicated by the actual index
+and the compressed index, returning an updated NodeArray and bitmap.
+-}
 setByIndex : Int -> Int -> Node k v -> Dict k v -> Dict k v
 setByIndex idx nodePos val (Dict positionMap nodes) =
     let
@@ -117,6 +144,9 @@ setByIndex idx nodePos val (Dict positionMap nodes) =
         Dict alteredBitmap newNodeArray
 
 
+{-| Remove a Node at the position indicated by the actual index
+and the compressed index, returning an updated NodeArray and bitmap.
+-}
 removeByIndex : Int -> Int -> Dict k v -> Dict k v
 removeByIndex idx nodePos (Dict positionMap nodes) =
     let
@@ -129,17 +159,24 @@ removeByIndex idx nodePos (Dict positionMap nodes) =
         Dict alteredBitmap (JsArray.removeIndex nodePos nodes)
 
 
+{-| Given a shift (level of the tree * 5) and a hash, return the
+index a node should have in a NodeArray at a certain level.
+-}
 hashPositionWithShift : Int -> Int -> Int
 hashPositionWithShift shift hash =
     Bitwise.and 0x1F <| Bitwise.shiftRightZfBy shift hash
 
 
+{-| Given an index and a bitmap, return the compressed index of a Node
+in a NodeArray.
+-}
 nodePosition : Int -> Int -> Int
 nodePosition idx posMap =
     countSetBits (Bitwise.shiftLeftBy 1 (Bitwise.shiftLeftBy (31 - idx) posMap))
 
 
-{-| No idea how this works. Stole code from stack overflow.
+{-| Count the number of set bits (1 bits) in an Int.
+See: <https://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel>
 -}
 countSetBits : Int -> Int
 countSetBits bitmap =
@@ -256,67 +293,75 @@ insertHelp shift hash key val ((Dict positionMap _) as dict) =
         pos =
             hashPositionWithShift shift hash
 
-        blobPos =
+        nodePos =
             nodePosition pos positionMap
 
         newShift =
             shift + 5
     in
-        case valueByIndex pos blobPos dict of
+        case valueByIndex pos nodePos dict of
             Nothing ->
-                setByIndex pos blobPos (Element hash key val) dict
+                setByIndex pos nodePos (Element hash key val) dict
 
             Just currValue ->
                 case currValue of
                     Element xHash xKey xVal ->
                         if xHash == hash then
                             if xKey == key then
-                                setByIndex pos blobPos (Element hash key val) dict
+                                setByIndex pos nodePos (Element hash key val) dict
                             else
                                 let
                                     element =
                                         Collision hash [ ( key, val ), ( xKey, xVal ) ]
                                 in
-                                    setByIndex pos blobPos element dict
+                                    setByIndex pos nodePos element dict
                         else
                             let
                                 subNodes =
-                                    empty
-                                        |> insertHelp newShift xHash xKey xVal
-                                        |> insertHelp newShift hash key val
-                                        |> SubTree
+                                    SubTree
+                                        (insertHelp
+                                            newShift
+                                            hash
+                                            key
+                                            val
+                                            (insertHelp newShift xHash xKey xVal empty)
+                                        )
                             in
-                                setByIndex pos blobPos subNodes dict
+                                setByIndex pos nodePos subNodes dict
 
                     SubTree subNodes ->
                         let
-                            sub =
-                                insertHelp newShift hash key val subNodes
+                            newSub =
+                                SubTree (insertHelp newShift hash key val subNodes)
                         in
-                            setByIndex pos blobPos (SubTree sub) dict
+                            setByIndex pos nodePos newSub dict
 
-                    Collision xHash subNodes ->
+                    Collision xHash pairs ->
                         if xHash == hash then
                             let
-                                newNodes =
-                                    ( key, val ) :: (List.filter (\( k, _ ) -> k /= key) subNodes)
+                                newPairs =
+                                    ( key, val ) :: (List.filter (\( k, _ ) -> k /= key) pairs)
                             in
-                                setByIndex pos blobPos (Collision hash newNodes) dict
+                                setByIndex pos nodePos (Collision hash newPairs) dict
                         else
                             let
                                 collisionPos =
                                     hashPositionWithShift newShift xHash
 
-                                collisionBlobPos =
+                                collisionNodePos =
                                     nodePosition collisionPos 0
 
                                 newNodes =
-                                    empty
-                                        |> setByIndex collisionPos collisionBlobPos currValue
-                                        |> insertHelp newShift hash key val
-                                        |> SubTree
+                                    SubTree
+                                        (insertHelp
+                                            newShift
+                                            hash
+                                            key
+                                            val
+                                            (setByIndex collisionPos collisionNodePos currValue empty)
+                                        )
                             in
-                                setByIndex pos blobPos newNodes dict
+                                setByIndex pos nodePos newNodes dict
 
 
 {-| Remove a key-value pair from a dictionary. If the key is not found,
@@ -342,7 +387,7 @@ removeHelp shift hash key ((Dict positionMap _) as dict) =
 
             Just node ->
                 case node of
-                    Element _ eKey value ->
+                    Element _ eKey _ ->
                         if eKey == key then
                             removeByIndex pos nodePos dict
                         else
@@ -350,10 +395,10 @@ removeHelp shift hash key ((Dict positionMap _) as dict) =
 
                     SubTree subDict ->
                         let
-                            newNodes =
-                                removeHelp (shift + 5) hash key subDict
+                            newSub =
+                                SubTree (removeHelp (shift + 5) hash key subDict)
                         in
-                            setByIndex pos nodePos (SubTree newNodes) dict
+                            setByIndex pos nodePos newSub dict
 
                     Collision _ vals ->
                         let
@@ -433,8 +478,9 @@ values dict =
 -}
 fold : (k -> v -> b -> b) -> b -> Dict k v -> b
 fold fn acc (Dict _ arr) =
-    JsArray.foldl
-        (\node acc ->
+    let
+        helper : Node k v -> b -> b
+        helper node acc =
             case node of
                 Element _ key val ->
                     fn key val acc
@@ -448,15 +494,15 @@ fold fn acc (Dict _ arr) =
                             fn k v acc
                     in
                         List.foldl colFold acc vals
-        )
-        acc
-        arr
+    in
+        JsArray.foldl helper acc arr
 
 
 foldWithHash : (Int -> k -> v -> b -> b) -> b -> Dict k v -> b
 foldWithHash fn acc (Dict _ arr) =
-    JsArray.foldl
-        (\node acc ->
+    let
+        helper : Node k v -> b -> b
+        helper node acc =
             case node of
                 Element hash key val ->
                     fn hash key val acc
@@ -470,34 +516,32 @@ foldWithHash fn acc (Dict _ arr) =
                             fn hash k v acc
                     in
                         List.foldl colFold acc vals
-        )
-        acc
-        arr
+    in
+        JsArray.foldl helper acc arr
 
 
 {-| Apply a function to all values in a dictionary.
 -}
 map : (k -> a -> b) -> Dict k a -> Dict k b
 map fn (Dict posMap nodes) =
-    Dict posMap
-        (JsArray.map
-            (\node ->
-                case node of
-                    Element hash key val ->
-                        Element hash key (fn key val)
+    let
+        helper : Node k a -> Node k b
+        helper node =
+            case node of
+                Element hash key val ->
+                    Element hash key (fn key val)
 
-                    SubTree subDict ->
-                        SubTree (map fn subDict)
+                SubTree subDict ->
+                    SubTree (map fn subDict)
 
-                    Collision hash vals ->
-                        let
-                            helper ( k, v ) =
-                                ( k, fn k v )
-                        in
-                            Collision hash (List.map helper vals)
-            )
-            nodes
-        )
+                Collision hash vals ->
+                    let
+                        helper ( k, v ) =
+                            ( k, fn k v )
+                    in
+                        Collision hash (List.map helper vals)
+    in
+        Dict posMap (JsArray.map helper nodes)
 
 
 {-| Keep a key-value pair when it satisfies a predicate.
@@ -505,6 +549,7 @@ map fn (Dict posMap nodes) =
 filter : (k -> v -> Bool) -> Dict k v -> Dict k v
 filter predicate dict =
     let
+        helper : Int -> k -> v -> Dict k v -> Dict k v
         helper hash key value dict =
             if predicate key value then
                 insertHelp 0 hash key value dict
@@ -521,6 +566,7 @@ contains the rest.
 partition : (k -> v -> Bool) -> Dict k v -> ( Dict k v, Dict k v )
 partition predicate dict =
     let
+        helper : Int -> k -> v -> ( Dict k v, Dict k v ) -> ( Dict k v, Dict k v )
         helper hash key value ( t1, t2 ) =
             if predicate key value then
                 ( insertHelp 0 hash key value t1, t2 )
@@ -548,6 +594,7 @@ Preference is given to values in the first Dictionary.
 intersect : Dict k v -> Dict k v -> Dict k v
 intersect t1 t2 =
     let
+        helper : Int -> k -> v -> Dict k v -> Dict k v
         helper h k v t =
             case getHelp 0 h k t2 of
                 Just _ ->
