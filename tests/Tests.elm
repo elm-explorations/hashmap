@@ -3,6 +3,7 @@ module Tests exposing (tests)
 import Basics exposing (..)
 import Dict as CoreImpl
 import Hash.Dict as Dict exposing (Dict)
+import Hash.Set as Set
 import List
 import Maybe exposing (..)
 import Test exposing (..)
@@ -36,6 +37,27 @@ comparisonList : Dict.Dict comparable a -> List ( comparable, a )
 comparisonList dict =
     Dict.toList dict
         |> List.sortBy Tuple.first
+
+
+type alias CollisionObject =
+    { a : Int, b : String }
+
+
+firstCollider : CollisionObject
+firstCollider =
+    { a = 42508, b = "42508" }
+
+
+secondCollider : CollisionObject
+secondCollider =
+    { a = 63992, b = "63992" }
+
+
+collisionObjects : List CollisionObject
+collisionObjects =
+    [ firstCollider
+    , secondCollider
+    ]
 
 
 tests : Test
@@ -139,6 +161,10 @@ tests =
                     \pairs num ->
                         comparisonList (Dict.remove num (Dict.fromList pairs))
                             |> Expect.equal (CoreImpl.toList (CoreImpl.remove num (CoreImpl.fromList pairs)))
+                , fuzz fuzzPairs "Map works" <|
+                    \pairs ->
+                        comparisonList (Dict.map (\k v -> k + v) (Dict.fromList pairs))
+                            |> Expect.equal (CoreImpl.toList (CoreImpl.map (\k v -> k + v) (CoreImpl.fromList pairs)))
                 , fuzz2 fuzzPairs fuzzPairs "Union works" <|
                     \pairs pairs2 ->
                         comparisonList (Dict.union (Dict.fromList pairs) (Dict.fromList pairs2))
@@ -152,6 +178,22 @@ tests =
                         comparisonList (Dict.diff (Dict.fromList pairs) (Dict.fromList pairs2))
                             |> Expect.equal (CoreImpl.toList (CoreImpl.diff (CoreImpl.fromList pairs) (CoreImpl.fromList pairs2)))
                 ]
+
+        collisionTests =
+            describe "Collision tests"
+                [ test "Insert" <|
+                    \() ->
+                        (Set.toList (Set.fromList collisionObjects))
+                            |> Expect.equal collisionObjects
+                , test "Remove" <|
+                    \() ->
+                        (Set.toList (Set.remove firstCollider (Set.fromList collisionObjects)))
+                            |> Expect.equal [ secondCollider ]
+                , test "Get" <|
+                    \() ->
+                        (Set.member secondCollider (Set.fromList collisionObjects))
+                            |> Expect.equal True
+                ]
     in
         describe "Dict Tests"
             [ buildTests
@@ -159,4 +201,5 @@ tests =
             , combineTests
             , transformTests
             , fuzzTests
+            , collisionTests
             ]
