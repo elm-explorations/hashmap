@@ -14,8 +14,8 @@ module Hash.Dict
         , toList
         , keys
         , values
-        , map
         , fold
+        , map
         , filter
         , partition
         , union
@@ -53,7 +53,7 @@ module Hash.Dict
 
 # Transform
 
-@docs map, fold, filter, partition
+@docs fold, map, filter, partition
 
 -}
 
@@ -91,67 +91,31 @@ type alias NodeArray k v =
 
 type
     Node k v
-    -- In addition to Element's and SubTree's (read the code for Array for more info)
+    -- In addition to Leaf's and SubTree's (read the code for Array for more info)
     -- we also have to consider Collisions. A hash function can potentially return
     -- the same hash for two different keys. In that case we store the key-value
     -- pairs in a list, and need to run an equality check when retrieving, or removing,
     -- said key. If we use a hash-function which causes a lot of collisions, our Dict
     -- essentially degrades into a List.
-    = Element Int k v
+    = Leaf Int k v
     | SubTree (Dict k v)
     | Collision Int (List ( k, v ))
 
 
-{-| Insert a Node at the position indicated by the actual index
-and the compressed index, returning an updated NodeArray and bitmap.
+{-| How many bits represents the branching factor (32). Read Array documentation for
+more info.
 -}
-setByIndex : Int -> Int -> Node k v -> Dict k v -> Dict k v
-setByIndex mask nodePos val (Dict positionMap nodes) =
-    let
-        alteredBitmap =
-            Bitwise.or positionMap mask
-
-        shouldReplace =
-            Bitwise.and positionMap mask == mask
-
-        newNodeArray =
-            if shouldReplace then
-                JsArray.unsafeSet nodePos val nodes
-            else
-                JsArray.unsafeInsert nodePos val nodes
-    in
-        Dict alteredBitmap newNodeArray
+shiftStep : Int
+shiftStep =
+    5
 
 
-{-| Given a shift (level of the tree * 5) and a hash, return the
-index a node should have in a NodeArray at a certain level.
+{-| A mask which, when used in a bitwise and, reads the first `shiftStep` bits
+in a number as a number of its own.
 -}
-hashPositionWithShift : Int -> Int -> Int
-hashPositionWithShift shift hash =
-    Bitwise.and 0x1F <| Bitwise.shiftRightZfBy shift hash
-
-
-{-| Given an index and a bitmap, return the compressed index of a Node
-in a NodeArray.
--}
-nodePosition : Int -> Int -> Int
-nodePosition idx posMap =
-    countSetBits (Bitwise.shiftLeftBy 1 (Bitwise.shiftLeftBy (31 - idx) posMap))
-
-
-{-| Count the number of set bits (1 bits) in an Int.
-See: <https://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel>
--}
-countSetBits : Int -> Int
-countSetBits bitmap =
-    let
-        b1 =
-            bitmap - (Bitwise.and (Bitwise.shiftRightZfBy 1 bitmap) 0x55555555)
-
-        b2 =
-            (Bitwise.and b1 0x33333333) + (Bitwise.and (Bitwise.shiftRightZfBy 2 b1) 0x33333333)
-    in
-        Bitwise.shiftRightZfBy 24 ((Bitwise.and (b2 + (Bitwise.shiftRightZfBy 4 b2)) 0x0F0F0F0F) * 0x01010101)
+bitMask : Int
+bitMask =
+    Bitwise.shiftRightZfBy (32 - shiftStep) 0xFFFFFFFF
 
 
 {-| Create an empty dictionary.
@@ -174,8 +138,8 @@ singleton key val =
 
 -}
 isEmpty : Dict k v -> Bool
-isEmpty (Dict _ arr) =
-    arr == JsArray.empty
+isEmpty (Dict bitmap _) =
+    bitmap == 0
 
 
 {-| Determine the number of key-value pairs in the dictionary.
@@ -202,33 +166,57 @@ get key dict =
 
 
 getHelp : Int -> Int -> k -> Dict k v -> Maybe v
-getHelp shift hash key (Dict positionMap nodes) =
+getHelp shift hash key (Dict bitmap nodes) =
     let
-        pos =
-            hashPositionWithShift shift hash
+        idx =
+            Bitwise.and bitMask (Bitwise.shiftRightZfBy shift hash)
 
         mask =
-            Bitwise.shiftLeftBy pos 0x01
+            Bitwise.shiftLeftBy idx 0x01
 
         hasValue =
-            Bitwise.and positionMap mask == mask
+            Bitwise.and bitmap mask == mask
     in
         if hasValue then
-            case JsArray.unsafeGet (nodePosition pos positionMap) nodes of
-                Element _ eKey value ->
+            case JsArray.unsafeGet (compressedIndex idx bitmap) nodes of
+                Leaf _ eKey value ->
                     if key == eKey then
                         Just value
                     else
                         Nothing
 
                 SubTree subNodes ->
-                    getHelp (shift + 5) hash key subNodes
+                    getHelp (shift + shiftStep) hash key subNodes
 
                 Collision _ vals ->
                     Maybe.map Tuple.second
                         (List.find (\( k, _ ) -> k == key) vals)
         else
             Nothing
+
+
+{-| Given an index and a bitmap, return the compressed index of a Node
+in a NodeArray.
+-}
+compressedIndex : Int -> Int -> Int
+compressedIndex idx bitmap =
+    -- The NodeArray at each level of a tree can be, at most, 32 in size.
+    -- A bitmap can contain 32 bits. 1 bits represents a stored value.
+    -- The compressed index is the number of elements to the left of the
+    -- idx bit.
+    let
+        relevantBits =
+            Bitwise.shiftLeftBy 1 (Bitwise.shiftLeftBy (31 - idx) bitmap)
+
+        -- Count the number of set bits (1 bits) in an Int.
+        -- See: <https://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel>
+        b1 =
+            relevantBits - (Bitwise.and (Bitwise.shiftRightZfBy 1 relevantBits) 0x55555555)
+
+        b2 =
+            (Bitwise.and b1 0x33333333) + (Bitwise.and (Bitwise.shiftRightZfBy 2 b1) 0x33333333)
+    in
+        Bitwise.shiftRightZfBy 24 ((Bitwise.and (b2 + (Bitwise.shiftRightZfBy 4 b2)) 0x0F0F0F0F) * 0x01010101)
 
 
 {-| Determine if a key is in a dictionary.
@@ -252,91 +240,107 @@ insert key value dict =
 
 
 insertHelp : Int -> Int -> k -> v -> Dict k v -> Dict k v
-insertHelp shift hash key val ((Dict positionMap nodes) as dict) =
+insertHelp shift hash key val ((Dict bitmap nodes) as dict) =
     let
-        pos =
-            hashPositionWithShift shift hash
+        idx =
+            Bitwise.and bitMask (Bitwise.shiftRightZfBy shift hash)
 
-        nodePos =
-            nodePosition pos positionMap
+        comIdx =
+            compressedIndex idx bitmap
 
         newShift =
-            shift + 5
+            shift + shiftStep
 
         mask =
-            Bitwise.shiftLeftBy pos 0x01
+            Bitwise.shiftLeftBy idx 0x01
 
         hasValue =
-            Bitwise.and positionMap mask == mask
+            Bitwise.and bitmap mask == mask
     in
         if hasValue then
-            let
-                currValue =
-                    JsArray.unsafeGet nodePos nodes
-            in
-                case currValue of
-                    Element xHash xKey xVal ->
-                        if xHash == hash then
-                            if xKey == key then
-                                setByIndex mask nodePos (Element hash key val) dict
-                            else
-                                let
-                                    element =
-                                        Collision hash [ ( key, val ), ( xKey, xVal ) ]
-                                in
-                                    setByIndex mask nodePos element dict
+            case JsArray.unsafeGet comIdx nodes of
+                Leaf xHash xKey xVal ->
+                    if xHash == hash then
+                        if xKey == key then
+                            setByIndex mask comIdx (Leaf hash key val) dict
                         else
                             let
-                                subNodes =
-                                    SubTree
-                                        (insertHelp
-                                            newShift
-                                            hash
-                                            key
-                                            val
-                                            (insertHelp newShift xHash xKey xVal empty)
-                                        )
+                                element =
+                                    Collision hash [ ( key, val ), ( xKey, xVal ) ]
                             in
-                                setByIndex mask nodePos subNodes dict
-
-                    SubTree subNodes ->
+                                setByIndex mask comIdx element dict
+                    else
                         let
-                            newSub =
-                                SubTree (insertHelp newShift hash key val subNodes)
+                            subNodes =
+                                SubTree
+                                    (insertHelp
+                                        newShift
+                                        hash
+                                        key
+                                        val
+                                        (insertHelp newShift xHash xKey xVal empty)
+                                    )
                         in
-                            setByIndex mask nodePos newSub dict
+                            setByIndex mask comIdx subNodes dict
 
-                    Collision xHash pairs ->
-                        if xHash == hash then
-                            let
-                                newPairs =
-                                    ( key, val ) :: (List.filter (\( k, _ ) -> k /= key) pairs)
-                            in
-                                setByIndex mask nodePos (Collision hash newPairs) dict
-                        else
-                            let
-                                collisionPos =
-                                    hashPositionWithShift newShift xHash
+                SubTree subNodes ->
+                    let
+                        newSub =
+                            SubTree (insertHelp newShift hash key val subNodes)
+                    in
+                        setByIndex mask comIdx newSub dict
 
-                                collisionNodePos =
-                                    nodePosition collisionPos 0
+                (Collision xHash pairs) as currValue ->
+                    if xHash == hash then
+                        let
+                            newPairs =
+                                ( key, val ) :: (List.filter (\( k, _ ) -> k /= key) pairs)
+                        in
+                            setByIndex mask comIdx (Collision hash newPairs) dict
+                    else
+                        let
+                            collisionPos =
+                                Bitwise.and bitMask (Bitwise.shiftRightZfBy shift hash)
 
-                                collisionMask =
-                                    Bitwise.shiftLeftBy collisionPos 0x01
+                            collisionNodePos =
+                                compressedIndex collisionPos 0
 
-                                newNodes =
-                                    SubTree
-                                        (insertHelp
-                                            newShift
-                                            hash
-                                            key
-                                            val
-                                            (setByIndex collisionMask collisionNodePos currValue empty)
-                                        )
-                            in
-                                setByIndex mask nodePos newNodes dict
+                            collisionMask =
+                                Bitwise.shiftLeftBy collisionPos 0x01
+
+                            newNodes =
+                                SubTree
+                                    (insertHelp
+                                        newShift
+                                        hash
+                                        key
+                                        val
+                                        (setByIndex collisionMask collisionNodePos currValue empty)
+                                    )
+                        in
+                            setByIndex mask comIdx newNodes dict
         else
-            setByIndex mask nodePos (Element hash key val) dict
+            setByIndex mask comIdx (Leaf hash key val) dict
+
+
+{-| Insert a Node at the given index, returning an updated Dict.
+-}
+setByIndex : Int -> Int -> Node k v -> Dict k v -> Dict k v
+setByIndex mask comIdx val (Dict bitmap nodes) =
+    let
+        alteredBitmap =
+            Bitwise.or bitmap mask
+
+        shouldReplace =
+            Bitwise.and bitmap mask == mask
+
+        newNodeArray =
+            if shouldReplace then
+                JsArray.unsafeSet comIdx val nodes
+            else
+                JsArray.unsafeInsert comIdx val nodes
+    in
+        Dict alteredBitmap newNodeArray
 
 
 {-| Remove a key-value pair from a dictionary. If the key is not found,
@@ -348,36 +352,36 @@ remove key dict =
 
 
 removeHelp : Int -> Int -> k -> Dict k v -> Dict k v
-removeHelp shift hash key ((Dict positionMap nodes) as dict) =
+removeHelp shift hash key ((Dict bitmap nodes) as dict) =
     let
-        pos =
-            hashPositionWithShift shift hash
+        idx =
+            Bitwise.and bitMask (Bitwise.shiftRightZfBy shift hash)
 
-        nodePos =
-            nodePosition pos positionMap
+        comIdx =
+            compressedIndex idx bitmap
 
         mask =
-            Bitwise.shiftLeftBy pos 0x01
+            Bitwise.shiftLeftBy idx 0x01
 
         hasValue =
-            Bitwise.and positionMap mask == mask
+            Bitwise.and bitmap mask == mask
     in
         if hasValue then
-            case JsArray.unsafeGet nodePos nodes of
-                Element _ eKey _ ->
+            case JsArray.unsafeGet comIdx nodes of
+                Leaf _ eKey _ ->
                     if eKey == key then
                         Dict
-                            (Bitwise.xor positionMap mask)
-                            (JsArray.removeIndex nodePos nodes)
+                            (Bitwise.xor bitmap mask)
+                            (JsArray.removeIndex comIdx nodes)
                     else
                         dict
 
                 SubTree subDict ->
                     let
                         newSub =
-                            SubTree (removeHelp (shift + 5) hash key subDict)
+                            SubTree (removeHelp (shift + shiftStep) hash key subDict)
                     in
-                        setByIndex mask nodePos newSub dict
+                        setByIndex mask comIdx newSub dict
 
                 Collision _ vals ->
                     let
@@ -387,14 +391,14 @@ removeHelp shift hash key ((Dict positionMap nodes) as dict) =
                         case newCollision of
                             [] ->
                                 Dict
-                                    (Bitwise.xor positionMap mask)
-                                    (JsArray.removeIndex nodePos nodes)
+                                    (Bitwise.xor bitmap mask)
+                                    (JsArray.removeIndex comIdx nodes)
 
                             ( eKey, eVal ) :: [] ->
-                                setByIndex mask nodePos (Element hash eKey eVal) dict
+                                setByIndex mask comIdx (Leaf hash eKey eVal) dict
 
                             _ ->
-                                setByIndex mask nodePos (Collision hash newCollision) dict
+                                setByIndex mask comIdx (Collision hash newCollision) dict
         else
             dict
 
@@ -410,7 +414,7 @@ update key fn dict =
         hash =
             FNV.hash key
     in
-        case fn <| getHelp 0 hash key dict of
+        case fn (getHelp 0 hash key dict) of
             Nothing ->
                 removeHelp 0 hash key dict
 
@@ -446,7 +450,7 @@ keys dict =
     fold (\k _ acc -> k :: acc) [] dict
 
 
-{-| Get all of the values in a dictionary, in the order of their keys.
+{-| Get all of the values in a dictionary as a List.
 
     values (fromList [(0,"Alice"),(1,"Bob")]) == ["Alice", "Bob"]
 
@@ -463,59 +467,64 @@ values dict =
 {-| Fold over the key-value pairs in a dictionary.
 -}
 fold : (k -> v -> b -> b) -> b -> Dict k v -> b
-fold fn acc (Dict _ arr) =
+fold fn acc (Dict _ nodes) =
     let
         helper : Node k v -> b -> b
         helper node acc =
             case node of
-                Element _ key val ->
+                Leaf _ key val ->
                     fn key val acc
 
-                SubTree nodes ->
-                    fold fn acc nodes
+                SubTree subNodes ->
+                    fold fn acc subNodes
 
                 Collision _ vals ->
                     let
+                        colFold : ( k, v ) -> b -> b
                         colFold ( k, v ) acc =
                             fn k v acc
                     in
                         List.foldl colFold acc vals
     in
-        JsArray.foldl helper acc arr
+        JsArray.foldl helper acc nodes
 
 
+{-| Same as fold, but include the hash value when calling the fold-fn.
+Allows avoiding rehashing keys when modifying a Dict. Internal use only.
+-}
 foldWithHash : (Int -> k -> v -> b -> b) -> b -> Dict k v -> b
-foldWithHash fn acc (Dict _ arr) =
+foldWithHash fn acc (Dict _ nodes) =
     let
         helper : Node k v -> b -> b
         helper node acc =
             case node of
-                Element hash key val ->
+                Leaf hash key val ->
                     fn hash key val acc
 
-                SubTree nodes ->
-                    foldWithHash fn acc nodes
+                SubTree subNodes ->
+                    foldWithHash fn acc subNodes
 
                 Collision hash vals ->
                     let
+                        colFold : ( k, v ) -> b -> b
                         colFold ( k, v ) acc =
                             fn hash k v acc
                     in
                         List.foldl colFold acc vals
     in
-        JsArray.foldl helper acc arr
+        JsArray.foldl helper acc nodes
 
 
 {-| Apply a function to all values in a dictionary.
 -}
 map : (k -> a -> b) -> Dict k a -> Dict k b
-map fn (Dict posMap nodes) =
+map fn (Dict bitmap nodes) =
     let
         helper : Node k a -> Node k b
         helper node =
             case node of
-                Element hash key val ->
-                    Element hash key (fn key val)
+                Leaf hash key val ->
+                    Leaf hash key (fn key val)
 
                 SubTree subDict ->
                     SubTree (map fn subDict)
@@ -527,7 +536,7 @@ map fn (Dict posMap nodes) =
                     in
                         Collision hash (List.map helper vals)
     in
-        Dict posMap (JsArray.map helper nodes)
+        Dict bitmap (JsArray.map helper nodes)
 
 
 {-| Keep a key-value pair when it satisfies a predicate.
