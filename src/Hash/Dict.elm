@@ -43,7 +43,7 @@ module Hash.Dict
 
 # Combine
 
-@docs union, intersect, diff, merge
+@docs union, intersect, diff
 
 
 # Lists
