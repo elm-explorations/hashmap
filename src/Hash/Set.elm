@@ -151,8 +151,8 @@ fromList xs =
 {-| Fold over the values in a set.
 -}
 fold : (a -> b -> b) -> b -> Set a -> b
-fold f b (Set dict) =
-    Dict.fold (\k _ b -> f k b) b dict
+fold f init (Set dict) =
+    Dict.fold (\k _ acc -> f k acc) init dict
 
 
 {-| Map a function onto a set, creating a new set with no duplicates.

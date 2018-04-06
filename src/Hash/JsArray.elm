@@ -46,7 +46,7 @@ For general purpose use, try the `Array` module instead.
 
 -}
 
-import Native.JsArray
+import Elm.Kernel.JsArray
 
 
 {-| Representation of a javascript array.
@@ -59,21 +59,21 @@ type JsArray a
 -}
 empty : JsArray a
 empty =
-    Native.JsArray.empty
+    Elm.Kernel.JsArray.empty
 
 
 {-| Return an array containing a single value.
 -}
 singleton : a -> JsArray a
 singleton =
-    Native.JsArray.singleton
+    Elm.Kernel.JsArray.singleton
 
 
 {-| Return the length of the array.
 -}
 length : JsArray a -> Int
 length =
-    Native.JsArray.length
+    Elm.Kernel.JsArray.length
 
 
 {-| Initialize an array. `initalize n offset fn` creates an array of length `n`
@@ -87,7 +87,7 @@ case. This is an optimization that has proved useful in the `Array` module.
 -}
 initialize : Int -> Int -> (Int -> a) -> JsArray a
 initialize =
-    Native.JsArray.initialize
+    Elm.Kernel.JsArray.initialize
 
 
 {-| Initialize an array from a list. `initializeFromList n ls` creates an array of,
@@ -103,7 +103,7 @@ reasonably small value.
 -}
 initializeFromList : Int -> List a -> ( JsArray a, List a )
 initializeFromList =
-    Native.JsArray.initializeFromList
+    Elm.Kernel.JsArray.initializeFromList
 
 
 {-| Returns the element at the given index.
@@ -114,7 +114,7 @@ Make sure you know the index is within bounds when using this function.
 -}
 unsafeGet : Int -> JsArray a -> a
 unsafeGet =
-    Native.JsArray.unsafeGet
+    Elm.Kernel.JsArray.unsafeGet
 
 
 {-| Sets the element at the given index.
@@ -125,7 +125,7 @@ Make sure you know the index is within bounds when using this function.
 -}
 unsafeSet : Int -> a -> JsArray a -> JsArray a
 unsafeSet =
-    Native.JsArray.unsafeSet
+    Elm.Kernel.JsArray.unsafeSet
 
 
 {-| Inserts element at given index.
@@ -136,7 +136,7 @@ Make sure you know the index is within bounds when using this function.
 -}
 unsafeInsert : Int -> a -> JsArray a -> JsArray a
 unsafeInsert =
-    Native.JsArray.unsafeInsert
+    Elm.Kernel.JsArray.unsafeInsert
 
 
 {-| Returns an array without the element stored at index n. If index is out of range, a copy
@@ -144,35 +144,35 @@ of the same array is returned.
 -}
 removeIndex : Int -> JsArray a -> JsArray a
 removeIndex =
-    Native.JsArray.removeIndex
+    Elm.Kernel.JsArray.removeIndex
 
 
 {-| Push an element onto the array.
 -}
 push : a -> JsArray a -> JsArray a
 push =
-    Native.JsArray.push
+    Elm.Kernel.JsArray.push
 
 
 {-| Reduce the array from the left.
 -}
 foldl : (a -> b -> b) -> b -> JsArray a -> b
 foldl =
-    Native.JsArray.foldl
+    Elm.Kernel.JsArray.foldl
 
 
 {-| Reduce the array from the right.
 -}
 foldr : (a -> b -> b) -> b -> JsArray a -> b
 foldr =
-    Native.JsArray.foldr
+    Elm.Kernel.JsArray.foldr
 
 
 {-| Apply a function on every element in an array.
 -}
 map : (a -> b) -> JsArray a -> JsArray b
 map =
-    Native.JsArray.map
+    Elm.Kernel.JsArray.map
 
 
 {-| Apply a function on every element and its index in an array.
@@ -183,7 +183,7 @@ An offset allows to modify the index passed to the function.
 -}
 indexedMap : (Int -> a -> b) -> Int -> JsArray a -> JsArray b
 indexedMap =
-    Native.JsArray.indexedMap
+    Elm.Kernel.JsArray.indexedMap
 
 
 {-| Get a sub section of an array: `(slice start end array)`.
@@ -200,7 +200,7 @@ In the case of an impossible slice, the empty array is returned.
 -}
 slice : Int -> Int -> JsArray a -> JsArray a
 slice =
-    Native.JsArray.slice
+    Elm.Kernel.JsArray.slice
 
 
 {-| Appends `n` elements from array `b` onto array `a`: `(appendN n a b)`.
@@ -211,4 +211,4 @@ create `JsArray`s above a certain size, even when appending.
 -}
 appendN : Int -> JsArray a -> JsArray a -> JsArray a
 appendN =
-    Native.JsArray.appendN
+    Elm.Kernel.JsArray.appendN

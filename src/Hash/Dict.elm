@@ -58,7 +58,6 @@ module Hash.Dict
 -}
 
 import Bitwise
-import List.Extra as List
 import Hash.FNV as FNV
 import Hash.JsArray as JsArray exposing (JsArray)
 
@@ -190,9 +189,14 @@ getHelp shift hash key (Dict bitmap nodes) =
 
                 Collision _ vals ->
                     Maybe.map Tuple.second
-                        (List.find (\( k, _ ) -> k == key) vals)
+                        (listFind (\( k, _ ) -> k == key) vals)
         else
             Nothing
+
+
+listFind : (a -> Bool) -> List a -> Maybe a
+listFind pred vals =
+    List.head (List.filter pred vals)
 
 
 {-| Given an index and a bitmap, return the compressed index of a Node
@@ -467,7 +471,7 @@ values dict =
 {-| Fold over the key-value pairs in a dictionary.
 -}
 fold : (k -> v -> b -> b) -> b -> Dict k v -> b
-fold fn acc (Dict _ nodes) =
+fold fn init (Dict _ nodes) =
     let
         helper : Node k v -> b -> b
         helper node acc =
@@ -481,19 +485,19 @@ fold fn acc (Dict _ nodes) =
                 Collision _ vals ->
                     let
                         colFold : ( k, v ) -> b -> b
-                        colFold ( k, v ) acc =
-                            fn k v acc
+                        colFold ( k, v ) colAcc =
+                            fn k v colAcc
                     in
                         List.foldl colFold acc vals
     in
-        JsArray.foldl helper acc nodes
+        JsArray.foldl helper init nodes
 
 
 {-| Same as fold, but include the hash value when calling the fold-fn.
 Allows avoiding rehashing keys when modifying a Dict. Internal use only.
 -}
 foldWithHash : (Int -> k -> v -> b -> b) -> b -> Dict k v -> b
-foldWithHash fn acc (Dict _ nodes) =
+foldWithHash fn init (Dict _ nodes) =
     let
         helper : Node k v -> b -> b
         helper node acc =
@@ -507,12 +511,12 @@ foldWithHash fn acc (Dict _ nodes) =
                 Collision hash vals ->
                     let
                         colFold : ( k, v ) -> b -> b
-                        colFold ( k, v ) acc =
-                            fn hash k v acc
+                        colFold ( k, v ) colAcc =
+                            fn hash k v colAcc
                     in
                         List.foldl colFold acc vals
     in
-        JsArray.foldl helper acc nodes
+        JsArray.foldl helper init nodes
 
 
 {-| Apply a function to all values in a dictionary.
@@ -531,10 +535,10 @@ map fn (Dict bitmap nodes) =
 
                 Collision hash vals ->
                     let
-                        helper ( k, v ) =
+                        colHelper ( k, v ) =
                             ( k, fn k v )
                     in
-                        Collision hash (List.map helper vals)
+                        Collision hash (List.map colHelper vals)
     in
         Dict bitmap (JsArray.map helper nodes)
 
@@ -545,11 +549,11 @@ filter : (k -> v -> Bool) -> Dict k v -> Dict k v
 filter predicate dict =
     let
         helper : Int -> k -> v -> Dict k v -> Dict k v
-        helper hash key value dict =
+        helper hash key value acc =
             if predicate key value then
-                insertHelp 0 hash key value dict
+                insertHelp 0 hash key value acc
             else
-                dict
+                acc
     in
         foldWithHash helper empty dict
 

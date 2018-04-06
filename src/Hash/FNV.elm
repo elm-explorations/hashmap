@@ -1,8 +1,8 @@
 module Hash.FNV exposing (hash)
 
-import Native.FNV
+import Elm.Kernel.FNV
 
 
 hash : a -> Int
 hash =
-    Native.FNV.hash
+    Elm.Kernel.FNV.hash
