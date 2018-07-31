@@ -5,6 +5,7 @@ import Dict as CoreImpl
 import Hash.Dict as Dict exposing (Dict)
 import Hash.Set as Set
 import List
+import List.Extra as List
 import Maybe exposing (..)
 import Test exposing (..)
 import Fuzz exposing (Fuzzer)
@@ -153,6 +154,16 @@ tests =
                     \pairs ->
                         comparisonList (Dict.fromList pairs)
                             |> Expect.equal (CoreImpl.toList (CoreImpl.fromList pairs))
+                , fuzz fuzzPairs "Insert order is maintained" <|
+                    \pairs ->
+                        let
+                            deduped =
+                                List.uniqueBy Tuple.first pairs
+                        in
+                            deduped
+                                |> Dict.fromList
+                                |> Dict.toList
+                                |> Expect.equal deduped
                 , fuzz2 fuzzPairs pairRange "Insert works" <|
                     \pairs num ->
                         comparisonList (Dict.insert num num (Dict.fromList pairs))
