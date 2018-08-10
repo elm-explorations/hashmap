@@ -164,23 +164,18 @@ dictionary.
 get : k -> Dict k v -> Maybe v
 get key (Dict bitmap nodes values) =
     let
-        maybeIdx =
+        idx =
             getHelp 0 (FNV.hash key) key bitmap nodes
     in
-        case maybeIdx of
-            Just idx ->
-                case Array.get idx values of
-                    Just ( k, v ) ->
-                        Just v
-
-                    Nothing ->
-                        Nothing
+        case Array.get idx values of
+            Just ( k, v ) ->
+                Just v
 
             Nothing ->
                 Nothing
 
 
-getHelp : Int -> Int -> k -> Int -> NodeArray k -> Maybe Int
+getHelp : Int -> Int -> k -> Int -> NodeArray k -> Int
 getHelp shift hash key bitmap nodes =
     let
         idx =
@@ -194,20 +189,24 @@ getHelp shift hash key bitmap nodes =
     in
         if hasValue then
             case JsArray.unsafeGet (compressedIndex idx bitmap) nodes of
-                Leaf _ eKey value ->
+                Leaf _ eKey eIdx ->
                     if key == eKey then
-                        Just value
+                        eIdx
                     else
-                        Nothing
+                        -1
 
                 SubTree subBitmap subNodes ->
                     getHelp (shift + shiftStep) hash key subBitmap subNodes
 
                 Collision _ vals ->
-                    Maybe.map Tuple.second
-                        (List.find (\( k, _ ) -> k == key) vals)
+                    case List.find (\( k, _ ) -> k == key) vals of
+                        Just ( _, i ) ->
+                            i
+
+                        Nothing ->
+                            -1
         else
-            Nothing
+            -1
 
 
 {-| Given an index and a bitmap, return the compressed index of a Node
@@ -238,7 +237,7 @@ compressedIndex idx bitmap =
 -}
 member : k -> Dict k v -> Bool
 member key (Dict bitmap nodes _) =
-    getHelp 0 (FNV.hash key) key bitmap nodes /= Nothing
+    getHelp 0 (FNV.hash key) key bitmap nodes /= -1
 
 
 {-| Insert a key-value pair into the dictionary. Replaces value when there is
