@@ -1,23 +1,11 @@
-module Hash.Set
-    exposing
-        ( Set
-        , empty
-        , singleton
-        , insert
-        , remove
-        , isEmpty
-        , member
-        , size
-        , fold
-        , map
-        , filter
-        , partition
-        , union
-        , intersect
-        , diff
-        , toList
-        , fromList
-        )
+module Hash.Set exposing
+    ( Set
+    , empty, singleton, insert, remove
+    , isEmpty, member, size
+    , union, intersect, diff
+    , toList, fromList
+    , map, fold, filter, partition
+    )
 
 {-| A set of unique values.
 
@@ -178,4 +166,4 @@ partition p (Set dict) =
         ( trues, falses ) =
             Dict.partition (\k _ -> p k) dict
     in
-        ( Set trues, Set falses )
+    ( Set trues, Set falses )

@@ -1,27 +1,11 @@
-module Hash.Dict
-    exposing
-        ( Dict
-        , empty
-        , singleton
-        , isEmpty
-        , size
-        , get
-        , member
-        , insert
-        , update
-        , remove
-        , fromList
-        , toList
-        , keys
-        , values
-        , fold
-        , map
-        , filter
-        , partition
-        , union
-        , intersect
-        , diff
-        )
+module Hash.Dict exposing
+    ( Dict
+    , empty, singleton, insert, update, remove
+    , get, isEmpty, member, size
+    , union, intersect, diff
+    , toList, fromList, keys, values
+    , fold, map, filter, partition
+    )
 
 {-| A dictionary mapping unique keys to values.
 
@@ -59,9 +43,9 @@ module Hash.Dict
 
 import Array.Hamt as Array exposing (Array)
 import Bitwise
-import List.Extra as List
 import Hash.FNV as FNV
 import Hash.JsArray as JsArray exposing (JsArray)
+import List.Extra as List
 
 
 {-| A dictionary of keys and values. So a `(Dict String User)` is a dictionary
@@ -167,12 +151,12 @@ get key (Dict bitmap nodes values) =
         idx =
             getHelp 0 (FNV.hash key) key bitmap nodes
     in
-        case Array.get idx values of
-            Just ( k, v ) ->
-                Just v
+    case Array.get idx values of
+        Just ( k, v ) ->
+            Just v
 
-            Nothing ->
-                Nothing
+        Nothing ->
+            Nothing
 
 
 getHelp : Int -> Int -> k -> Int -> NodeArray k -> Int
@@ -187,26 +171,28 @@ getHelp shift hash key bitmap nodes =
         hasValue =
             Bitwise.and bitmap mask == mask
     in
-        if hasValue then
-            case JsArray.unsafeGet (compressedIndex idx bitmap) nodes of
-                Leaf _ eKey eIdx ->
-                    if key == eKey then
-                        eIdx
-                    else
+    if hasValue then
+        case JsArray.unsafeGet (compressedIndex idx bitmap) nodes of
+            Leaf _ eKey eIdx ->
+                if key == eKey then
+                    eIdx
+
+                else
+                    -1
+
+            SubTree subBitmap subNodes ->
+                getHelp (shift + shiftStep) hash key subBitmap subNodes
+
+            Collision _ vals ->
+                case List.find (\( k, _ ) -> k == key) vals of
+                    Just ( _, i ) ->
+                        i
+
+                    Nothing ->
                         -1
 
-                SubTree subBitmap subNodes ->
-                    getHelp (shift + shiftStep) hash key subBitmap subNodes
-
-                Collision _ vals ->
-                    case List.find (\( k, _ ) -> k == key) vals of
-                        Just ( _, i ) ->
-                            i
-
-                        Nothing ->
-                            -1
-        else
-            -1
+    else
+        -1
 
 
 {-| Given an index and a bitmap, return the compressed index of a Node
@@ -225,12 +211,12 @@ compressedIndex idx bitmap =
         -- Count the number of set bits (1 bits) in an Int.
         -- See: <https://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel>
         b1 =
-            relevantBits - (Bitwise.and (Bitwise.shiftRightZfBy 1 relevantBits) 0x55555555)
+            relevantBits - Bitwise.and (Bitwise.shiftRightZfBy 1 relevantBits) 0x55555555
 
         b2 =
-            (Bitwise.and b1 0x33333333) + (Bitwise.and (Bitwise.shiftRightZfBy 2 b1) 0x33333333)
+            Bitwise.and b1 0x33333333 + Bitwise.and (Bitwise.shiftRightZfBy 2 b1) 0x33333333
     in
-        Bitwise.shiftRightZfBy 24 ((Bitwise.and (b2 + (Bitwise.shiftRightZfBy 4 b2)) 0x0F0F0F0F) * 0x01010101)
+    Bitwise.shiftRightZfBy 24 (Bitwise.and (b2 + Bitwise.shiftRightZfBy 4 b2) 0x0F0F0F0F * 0x01010101)
 
 
 {-| Determine if a key is in a dictionary.
@@ -255,10 +241,11 @@ insert key value (Dict bitmap nodes values) =
         newValues =
             if index == nextIndex then
                 Array.push ( key, value ) values
+
             else
                 Array.set index ( key, value ) values
     in
-        Dict newBitmap newNodes newValues
+    Dict newBitmap newNodes newValues
 
 
 insertHelp : Int -> Int -> k -> Int -> Int -> NodeArray k -> ( Int, Int, NodeArray k )
@@ -279,117 +266,121 @@ insertHelp shift hash key idx bitmap nodes =
         hasValue =
             Bitwise.and bitmap mask == mask
     in
-        if hasValue then
-            case JsArray.unsafeGet comIdx nodes of
-                Leaf xHash xKey xIdx ->
-                    if xHash == hash then
-                        if xKey == key then
-                            ( xIdx
+    if hasValue then
+        case JsArray.unsafeGet comIdx nodes of
+            Leaf xHash xKey xIdx ->
+                if xHash == hash then
+                    if xKey == key then
+                        ( xIdx
+                        , bitmap
+                        , nodes
+                        )
+
+                    else
+                        let
+                            element =
+                                Collision hash [ ( key, idx ), ( xKey, xIdx ) ]
+                        in
+                        ( idx
+                        , bitmap
+                        , setByIndex mask comIdx element bitmap nodes
+                        )
+
+                else
+                    let
+                        ( _, firstBitmap, firstNodes ) =
+                            insertHelp newShift xHash xKey xIdx 0 JsArray.empty
+
+                        ( _, secondBitmap, secondNodes ) =
+                            insertHelp
+                                newShift
+                                hash
+                                key
+                                idx
+                                firstBitmap
+                                firstNodes
+
+                        subTree =
+                            SubTree secondBitmap secondNodes
+                    in
+                    ( idx
+                    , Bitwise.or bitmap mask
+                    , setByIndex mask comIdx subTree bitmap nodes
+                    )
+
+            SubTree subBitmap subNodes ->
+                let
+                    ( newIdx, newSubBitmap, newSubNodes ) =
+                        insertHelp newShift hash key idx subBitmap subNodes
+
+                    newSub =
+                        SubTree newSubBitmap newSubNodes
+                in
+                ( newIdx
+                , Bitwise.or bitmap mask
+                , setByIndex mask comIdx newSub bitmap nodes
+                )
+
+            (Collision xHash pairs) as currValue ->
+                if xHash == hash then
+                    let
+                        maybeExistingIdx =
+                            List.find (\( k, v ) -> k == key) pairs
+                    in
+                    case maybeExistingIdx of
+                        Just ( _, existingIdx ) ->
+                            ( existingIdx
                             , bitmap
                             , nodes
                             )
-                        else
-                            let
-                                element =
-                                    Collision hash [ ( key, idx ), ( xKey, xIdx ) ]
-                            in
-                                ( idx
-                                , bitmap
-                                , setByIndex mask comIdx element bitmap nodes
-                                )
-                    else
-                        let
-                            ( _, firstBitmap, firstNodes ) =
-                                insertHelp newShift xHash xKey xIdx 0 JsArray.empty
 
-                            ( _, secondBitmap, secondNodes ) =
-                                insertHelp
-                                    newShift
-                                    hash
-                                    key
-                                    idx
-                                    firstBitmap
-                                    firstNodes
-
-                            subTree =
-                                SubTree secondBitmap secondNodes
-                        in
+                        Nothing ->
                             ( idx
-                            , Bitwise.or bitmap mask
-                            , setByIndex mask comIdx subTree bitmap nodes
+                            , bitmap
+                            , setByIndex
+                                mask
+                                comIdx
+                                (Collision hash (( key, idx ) :: pairs))
+                                bitmap
+                                nodes
                             )
 
-                SubTree subBitmap subNodes ->
+                else
                     let
-                        ( newIdx, newSubBitmap, newSubNodes ) =
-                            insertHelp newShift hash key idx subBitmap subNodes
+                        collisionPos =
+                            Bitwise.and bitMask (Bitwise.shiftRightZfBy shift hash)
 
-                        newSub =
-                            SubTree newSubBitmap newSubNodes
+                        collisionNodePos =
+                            compressedIndex collisionPos 0
+
+                        collisionMask =
+                            Bitwise.shiftLeftBy collisionPos 1
+
+                        ( _, subBitmap, subNodes ) =
+                            insertHelp
+                                newShift
+                                hash
+                                key
+                                idx
+                                (Bitwise.or 0 collisionMask)
+                                (setByIndex
+                                    collisionMask
+                                    collisionNodePos
+                                    currValue
+                                    0
+                                    JsArray.empty
+                                )
                     in
-                        ( newIdx
-                        , Bitwise.or bitmap mask
-                        , setByIndex mask comIdx newSub bitmap nodes
-                        )
+                    ( idx
+                    , Bitwise.or bitmap mask
+                    , setByIndex mask comIdx (SubTree subBitmap subNodes) bitmap nodes
+                    )
 
-                (Collision xHash pairs) as currValue ->
-                    if xHash == hash then
-                        let
-                            maybeExistingIdx =
-                                List.find (\( k, v ) -> k == key) pairs
-                        in
-                            case maybeExistingIdx of
-                                Just ( _, existingIdx ) ->
-                                    ( existingIdx
-                                    , bitmap
-                                    , nodes
-                                    )
-
-                                Nothing ->
-                                    ( idx
-                                    , bitmap
-                                    , setByIndex
-                                        mask
-                                        comIdx
-                                        (Collision hash (( key, idx ) :: pairs))
-                                        bitmap
-                                        nodes
-                                    )
-                    else
-                        let
-                            collisionPos =
-                                Bitwise.and bitMask (Bitwise.shiftRightZfBy shift hash)
-
-                            collisionNodePos =
-                                compressedIndex collisionPos 0
-
-                            collisionMask =
-                                Bitwise.shiftLeftBy collisionPos 1
-
-                            ( _, subBitmap, subNodes ) =
-                                insertHelp
-                                    newShift
-                                    hash
-                                    key
-                                    idx
-                                    (Bitwise.or 0 collisionMask)
-                                    (setByIndex
-                                        collisionMask
-                                        collisionNodePos
-                                        currValue
-                                        0
-                                        JsArray.empty
-                                    )
-                        in
-                            ( idx
-                            , Bitwise.or bitmap mask
-                            , setByIndex mask comIdx (SubTree subBitmap subNodes) bitmap nodes
-                            )
-        else
-            ( idx
-            , Bitwise.or bitmap mask
-            , setByIndex mask comIdx (Leaf hash key idx) bitmap nodes
-            )
+    else
+        ( idx
+        , Bitwise.or bitmap mask
+        , setByIndex mask comIdx (Leaf hash key idx) bitmap nodes
+        )
 
 
 {-| Insert a Node at the given index, returning an updated Dict.
@@ -400,10 +391,11 @@ setByIndex mask comIdx val bitmap nodes =
         shouldReplace =
             Bitwise.and bitmap mask == mask
     in
-        if shouldReplace then
-            JsArray.unsafeSet comIdx val nodes
-        else
-            JsArray.unsafeInsert comIdx val nodes
+    if shouldReplace then
+        JsArray.unsafeSet comIdx val nodes
+
+    else
+        JsArray.unsafeInsert comIdx val nodes
 
 
 {-| Remove a key-value pair from a dictionary. If the key is not found,
@@ -418,12 +410,13 @@ remove key (Dict bitmap nodes values) =
         newValues =
             if removeIdx == -1 then
                 values
+
             else
                 Array.append
                     (Array.slice 0 removeIdx values)
                     (Array.slice (removeIdx + 1) (Array.length values) values)
     in
-        Dict newBitmap newNodes newValues
+    Dict newBitmap newNodes newValues
 
 
 removeHelp : Int -> Int -> k -> Int -> NodeArray k -> ( Int, Int, NodeArray k )
@@ -441,71 +434,73 @@ removeHelp shift hash key bitmap nodes =
         hasValue =
             Bitwise.and bitmap mask == mask
     in
-        if hasValue then
-            case JsArray.unsafeGet compIdx nodes of
-                Leaf _ eKey eIdx ->
-                    if eKey == key then
-                        ( eIdx
+    if hasValue then
+        case JsArray.unsafeGet compIdx nodes of
+            Leaf _ eKey eIdx ->
+                if eKey == key then
+                    ( eIdx
+                    , Bitwise.xor bitmap mask
+                    , JsArray.removeIndex compIdx nodes
+                    )
+
+                else
+                    ( -1
+                    , bitmap
+                    , nodes
+                    )
+
+            SubTree subBitmap subNodes ->
+                let
+                    ( removeIdx, newSubBitmap, newSubNodes ) =
+                        removeHelp (shift + shiftStep) hash key subBitmap subNodes
+                in
+                ( removeIdx
+                , Bitwise.or bitmap mask
+                , setByIndex mask
+                    compIdx
+                    (SubTree newSubBitmap newSubNodes)
+                    bitmap
+                    nodes
+                )
+
+            Collision _ vals ->
+                let
+                    removeIdx =
+                        List.find (\( k, _ ) -> k == key) vals
+                            |> Maybe.map Tuple.second
+                            |> Maybe.withDefault -1
+
+                    newCollision =
+                        List.filter (\( k, _ ) -> k /= key) vals
+                in
+                case newCollision of
+                    [] ->
+                        ( removeIdx
                         , Bitwise.xor bitmap mask
                         , JsArray.removeIndex compIdx nodes
                         )
-                    else
-                        ( -1
-                        , bitmap
-                        , nodes
+
+                    ( eKey, eVal ) :: [] ->
+                        ( removeIdx
+                        , Bitwise.or bitmap mask
+                        , setByIndex mask compIdx (Leaf hash eKey eVal) bitmap nodes
                         )
 
-                SubTree subBitmap subNodes ->
-                    let
-                        ( removeIdx, newSubBitmap, newSubNodes ) =
-                            removeHelp (shift + shiftStep) hash key subBitmap subNodes
-                    in
+                    _ ->
                         ( removeIdx
                         , Bitwise.or bitmap mask
                         , setByIndex mask
                             compIdx
-                            (SubTree newSubBitmap newSubNodes)
+                            (Collision hash newCollision)
                             bitmap
                             nodes
                         )
 
-                Collision _ vals ->
-                    let
-                        removeIdx =
-                            List.find (\( k, _ ) -> k == key) vals
-                                |> Maybe.map Tuple.second
-                                |> Maybe.withDefault -1
-
-                        newCollision =
-                            List.filter (\( k, _ ) -> k /= key) vals
-                    in
-                        case newCollision of
-                            [] ->
-                                ( removeIdx
-                                , Bitwise.xor bitmap mask
-                                , JsArray.removeIndex compIdx nodes
-                                )
-
-                            ( eKey, eVal ) :: [] ->
-                                ( removeIdx
-                                , Bitwise.or bitmap mask
-                                , setByIndex mask compIdx (Leaf hash eKey eVal) bitmap nodes
-                                )
-
-                            _ ->
-                                ( removeIdx
-                                , Bitwise.or bitmap mask
-                                , setByIndex mask
-                                    compIdx
-                                    (Collision hash newCollision)
-                                    bitmap
-                                    nodes
-                                )
-        else
-            ( -1
-            , bitmap
-            , nodes
-            )
+    else
+        ( -1
+        , bitmap
+        , nodes
+        )
 
 
 {-| Update the value of a dictionary for a specific key with a given function.
@@ -519,12 +514,12 @@ update key fn dict =
         hash =
             FNV.hash key
     in
-        case fn (get key dict) of
-            Nothing ->
-                remove key dict
+    case fn (get key dict) of
+        Nothing ->
+            remove key dict
 
-            Just val ->
-                insert key val dict
+        Just val ->
+            insert key val dict
 
 
 
@@ -590,7 +585,7 @@ map fn (Dict bitmap nodes values) =
         helper ( k, v ) =
             ( k, fn k v )
     in
-        Dict bitmap nodes (Array.map helper values)
+    Dict bitmap nodes (Array.map helper values)
 
 
 {-| Keep a key-value pair when it satisfies a predicate.
@@ -602,10 +597,11 @@ filter predicate dict =
         helper key value dict =
             if predicate key value then
                 insert key value dict
+
             else
                 dict
     in
-        fold helper empty dict
+    fold helper empty dict
 
 
 {-| Partition a dictionary according to a predicate. The first dictionary
@@ -619,10 +615,11 @@ partition predicate dict =
         helper key value ( t1, t2 ) =
             if predicate key value then
                 ( insert key value t1, t2 )
+
             else
                 ( t1, insert key value t2 )
     in
-        fold helper ( empty, empty ) dict
+    fold helper ( empty, empty ) dict
 
 
 
@@ -652,7 +649,7 @@ intersect t1 t2 =
                 Nothing ->
                     t
     in
-        fold helper empty t1
+    fold helper empty t1
 
 
 {-| Keep a key-value pair when its key does not appear in the second Dictionary.
