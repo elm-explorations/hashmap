@@ -4,7 +4,7 @@ module Hash.Set exposing
     , isEmpty, member, size
     , union, intersect, diff
     , toList, fromList
-    , map, fold, filter, partition
+    , map, foldl, foldr, filter, partition
     )
 
 {-| A set of unique values.
@@ -37,7 +37,7 @@ module Hash.Set exposing
 
 # Transform
 
-@docs map, fold, filter, partition
+@docs map, foldl, foldr, filter, partition
 
 -}
 
@@ -138,16 +138,23 @@ fromList xs =
 
 {-| Fold over the values in a set.
 -}
-fold : (a -> b -> b) -> b -> Set a -> b
-fold f b (Set dict) =
-    Dict.fold (\k _ b -> f k b) b dict
+foldl : (a -> b -> b) -> b -> Set a -> b
+foldl f b (Set dict) =
+    Dict.foldl (\k _ b -> f k b) b dict
+
+
+{-| Fold over the values in a set.
+-}
+foldr : (a -> b -> b) -> b -> Set a -> b
+foldr f b (Set dict) =
+    Dict.foldr (\k _ b -> f k b) b dict
 
 
 {-| Map a function onto a set, creating a new set with no duplicates.
 -}
 map : (a -> b) -> Set a -> Set b
 map fn (Set dict) =
-    Set (Dict.fold (\k _ b -> Dict.insert (fn k) True b) Dict.empty dict)
+    Set (Dict.foldl (\k _ b -> Dict.insert (fn k) True b) Dict.empty dict)
 
 
 {-| Create a new set consisting only of elements which satisfy a predicate.

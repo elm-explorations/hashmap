@@ -4,7 +4,7 @@ module Hash.Dict exposing
     , get, isEmpty, member, size
     , union, intersect, diff
     , toList, fromList, keys, values
-    , fold, map, filter, partition
+    , foldl, foldr, map, filter, partition
     )
 
 {-| A dictionary mapping unique keys to values.
@@ -37,7 +37,7 @@ module Hash.Dict exposing
 
 # Transform
 
-@docs fold, map, filter, partition
+@docs foldl, foldr, map, filter, partition
 
 -}
 
@@ -68,24 +68,24 @@ type
     -- Example: The hash for key '0' tells us that the element should be
     -- stored at index 9. In the bitmap, there are no set bits (ones) before
     -- index 9, so we actually store the key-value pair at index 0.
-    = Dict Int (NodeArray k) Int (OrderedDict.Dict Int ( k, v ))
+    = Dict Int (NodeArray k v) Int (OrderedDict.Dict Int k)
 
 
-type alias NodeArray k =
-    JsArray (Node k)
+type alias NodeArray k v =
+    JsArray (Node k v)
 
 
 type
-    Node k
+    Node k v
     -- In addition to Leaf's and SubTree's (read the code for Array for more info)
     -- we also have to consider Collisions. A hash function can potentially return
     -- the same hash for two different keys. In that case we store the key-value
     -- pairs in a list, and need to run an equality check when retrieving, or removing,
     -- said key. If we use a hash-function which causes a lot of collisions, our Dict
     -- essentially degrades into a List.
-    = Leaf Int k Int
-    | SubTree Int (NodeArray k)
-    | Collision Int (List ( k, Int ))
+    = Leaf Int Int k v
+    | SubTree Int (NodeArray k v)
+    | Collision Int (List ( Int, k, v ))
 
 
 {-| How many bits represents the branching factor (32). Read Array documentation for
@@ -148,19 +148,10 @@ dictionary.
 -}
 get : k -> Dict k v -> Maybe v
 get key (Dict bitmap nodes _ values) =
-    let
-        idx =
-            getHelp 0 (FNV.hash key) key bitmap nodes
-    in
-    case OrderedDict.get idx values of
-        Just ( k, v ) ->
-            Just v
-
-        Nothing ->
-            Nothing
+    getHelp 0 (FNV.hash key) key bitmap nodes
 
 
-getHelp : Int -> Int -> k -> Int -> NodeArray k -> Int
+getHelp : Int -> Int -> k -> Int -> NodeArray k v -> Maybe v
 getHelp shift hash key bitmap nodes =
     let
         idx =
@@ -168,32 +159,29 @@ getHelp shift hash key bitmap nodes =
 
         mask =
             Bitwise.shiftLeftBy idx 1
-
-        hasValue =
-            Bitwise.and bitmap mask == mask
     in
-    if hasValue then
+    if Bitwise.and bitmap mask == mask then
         case JsArray.unsafeGet (compressedIndex idx bitmap) nodes of
-            Leaf _ eKey eIdx ->
+            Leaf _ eIdx eKey eVal ->
                 if key == eKey then
-                    eIdx
+                    Just eVal
 
                 else
-                    -1
+                    Nothing
 
             SubTree subBitmap subNodes ->
                 getHelp (shift + shiftStep) hash key subBitmap subNodes
 
             Collision _ vals ->
-                case List.find (\( k, _ ) -> k == key) vals of
-                    Just ( _, i ) ->
-                        i
+                case List.find (\( _, k, _ ) -> k == key) vals of
+                    Just ( _, _, val ) ->
+                        Just val
 
                     Nothing ->
-                        -1
+                        Nothing
 
     else
-        -1
+        Nothing
 
 
 {-| Given an index and a bitmap, return the compressed index of a Node
@@ -224,7 +212,7 @@ compressedIndex idx bitmap =
 -}
 member : k -> Dict k v -> Bool
 member key (Dict bitmap nodes _ _) =
-    getHelp 0 (FNV.hash key) key bitmap nodes /= -1
+    getHelp 0 (FNV.hash key) key bitmap nodes /= Nothing
 
 
 {-| Insert a key-value pair into the dictionary. Replaces value when there is
@@ -234,7 +222,7 @@ insert : k -> v -> Dict k v -> Dict k v
 insert key value (Dict bitmap nodes nextIndex values) =
     let
         ( index, newBitmap, newNodes ) =
-            insertHelp 0 (FNV.hash key) key nextIndex bitmap nodes
+            insertHelp 0 (FNV.hash key) nextIndex key value bitmap nodes
 
         updatedCount =
             if index == nextIndex then
@@ -244,13 +232,13 @@ insert key value (Dict bitmap nodes nextIndex values) =
                 nextIndex
 
         newValues =
-            OrderedDict.insert index ( key, value ) values
+            OrderedDict.insert index key values
     in
     Dict newBitmap newNodes updatedCount newValues
 
 
-insertHelp : Int -> Int -> k -> Int -> Int -> NodeArray k -> ( Int, Int, NodeArray k )
-insertHelp shift hash key idx bitmap nodes =
+insertHelp : Int -> Int -> Int -> k -> v -> Int -> NodeArray k v -> ( Int, Int, NodeArray k v )
+insertHelp shift hash idx key value bitmap nodes =
     let
         uncompressedIdx =
             Bitwise.and bitMask (Bitwise.shiftRightZfBy shift hash)
@@ -269,18 +257,18 @@ insertHelp shift hash key idx bitmap nodes =
     in
     if hasValue then
         case JsArray.unsafeGet comIdx nodes of
-            Leaf xHash xKey xIdx ->
+            Leaf xHash xIdx xKey xVal ->
                 if xHash == hash then
                     if xKey == key then
                         ( xIdx
                         , bitmap
-                        , nodes
+                        , setByIndex mask comIdx (Leaf xHash xIdx xKey value) bitmap nodes
                         )
 
                     else
                         let
                             element =
-                                Collision hash [ ( key, idx ), ( xKey, xIdx ) ]
+                                Collision hash [ ( idx, key, value ), ( xIdx, xKey, xVal ) ]
                         in
                         ( idx
                         , bitmap
@@ -290,14 +278,15 @@ insertHelp shift hash key idx bitmap nodes =
                 else
                     let
                         ( _, firstBitmap, firstNodes ) =
-                            insertHelp newShift xHash xKey xIdx 0 JsArray.empty
+                            insertHelp newShift xHash xIdx xKey xVal 0 JsArray.empty
 
                         ( _, secondBitmap, secondNodes ) =
                             insertHelp
                                 newShift
                                 hash
-                                key
                                 idx
+                                key
+                                value
                                 firstBitmap
                                 firstNodes
 
@@ -312,7 +301,7 @@ insertHelp shift hash key idx bitmap nodes =
             SubTree subBitmap subNodes ->
                 let
                     ( newIdx, newSubBitmap, newSubNodes ) =
-                        insertHelp newShift hash key idx subBitmap subNodes
+                        insertHelp newShift hash idx key value subBitmap subNodes
 
                     newSub =
                         SubTree newSubBitmap newSubNodes
@@ -324,12 +313,8 @@ insertHelp shift hash key idx bitmap nodes =
 
             (Collision xHash pairs) as currValue ->
                 if xHash == hash then
-                    let
-                        maybeExistingIdx =
-                            List.find (\( k, v ) -> k == key) pairs
-                    in
-                    case maybeExistingIdx of
-                        Just ( _, existingIdx ) ->
+                    case List.find (\( _, k, _ ) -> k == key) pairs of
+                        Just ( existingIdx, _, _ ) ->
                             ( existingIdx
                             , bitmap
                             , nodes
@@ -341,7 +326,7 @@ insertHelp shift hash key idx bitmap nodes =
                             , setByIndex
                                 mask
                                 comIdx
-                                (Collision hash (( key, idx ) :: pairs))
+                                (Collision hash (( idx, key, value ) :: pairs))
                                 bitmap
                                 nodes
                             )
@@ -361,8 +346,9 @@ insertHelp shift hash key idx bitmap nodes =
                             insertHelp
                                 newShift
                                 hash
-                                key
                                 idx
+                                key
+                                value
                                 (Bitwise.or 0 collisionMask)
                                 (setByIndex
                                     collisionMask
@@ -380,13 +366,13 @@ insertHelp shift hash key idx bitmap nodes =
     else
         ( idx
         , Bitwise.or bitmap mask
-        , setByIndex mask comIdx (Leaf hash key idx) bitmap nodes
+        , setByIndex mask comIdx (Leaf hash idx key value) bitmap nodes
         )
 
 
 {-| Insert a Node at the given index, returning an updated Dict.
 -}
-setByIndex : Int -> Int -> Node k -> Int -> NodeArray k -> NodeArray k
+setByIndex : Int -> Int -> Node k v -> Int -> NodeArray k v -> NodeArray k v
 setByIndex mask comIdx val bitmap nodes =
     let
         shouldReplace =
@@ -418,7 +404,7 @@ remove key (Dict bitmap nodes counter values) =
     Dict newBitmap newNodes counter newValues
 
 
-removeHelp : Int -> Int -> k -> Int -> NodeArray k -> ( Int, Int, NodeArray k )
+removeHelp : Int -> Int -> k -> Int -> NodeArray k v -> ( Int, Int, NodeArray k v )
 removeHelp shift hash key bitmap nodes =
     let
         uncompIdx =
@@ -435,7 +421,7 @@ removeHelp shift hash key bitmap nodes =
     in
     if hasValue then
         case JsArray.unsafeGet compIdx nodes of
-            Leaf _ eKey eIdx ->
+            Leaf _ eIdx eKey eVal ->
                 if eKey == key then
                     ( eIdx
                     , Bitwise.xor bitmap mask
@@ -465,12 +451,12 @@ removeHelp shift hash key bitmap nodes =
             Collision _ vals ->
                 let
                     removeIdx =
-                        List.find (\( k, _ ) -> k == key) vals
-                            |> Maybe.map Tuple.second
+                        List.find (\( _, k, _ ) -> k == key) vals
+                            |> Maybe.map (\( idx, _, _ ) -> idx)
                             |> Maybe.withDefault -1
 
                     newCollision =
-                        List.filter (\( k, _ ) -> k /= key) vals
+                        List.filter (\( _, k, _ ) -> k /= key) vals
                 in
                 case newCollision of
                     [] ->
@@ -479,10 +465,10 @@ removeHelp shift hash key bitmap nodes =
                         , JsArray.removeIndex compIdx nodes
                         )
 
-                    ( eKey, eVal ) :: [] ->
+                    ( eIdx, eKey, eVal ) :: [] ->
                         ( removeIdx
                         , Bitwise.or bitmap mask
-                        , setByIndex mask compIdx (Leaf hash eKey eVal) bitmap nodes
+                        , setByIndex mask compIdx (Leaf hash eIdx eKey eVal) bitmap nodes
                         )
 
                     _ ->
@@ -545,8 +531,8 @@ toList dict =
 
 -}
 keys : Dict k v -> List k
-keys dict =
-    foldr (\k _ acc -> k :: acc) [] dict
+keys (Dict _ _ _ keys) =
+    OrderedDict.values keys
 
 
 {-| Get all of the values in a dictionary as a List.
@@ -565,26 +551,43 @@ values dict =
 
 {-| Fold over the key-value pairs in a dictionary.
 -}
-fold : (k -> v -> b -> b) -> b -> Dict k v -> b
-fold fn acc (Dict _ _ _ values) =
-    OrderedDict.foldl (\_ ( k, v ) acc -> fn k v acc) acc values
+foldl : (k -> v -> b -> b) -> b -> Dict k v -> b
+foldl fn acc ((Dict _ _ _ keys) as dict) =
+    let
+        helper idx k acc =
+            case get k dict of
+                Just v ->
+                    fn k v acc
+
+                Nothing ->
+                    acc
+    in
+    OrderedDict.foldl helper acc keys
 
 
 foldr : (k -> v -> b -> b) -> b -> Dict k v -> b
-foldr fn acc (Dict _ _ _ values) =
-    OrderedDict.foldr (\_ ( k, v ) acc -> fn k v acc) acc values
+foldr fn acc ((Dict _ _ _ keys) as dict) =
+    let
+        helper idx k acc =
+            case get k dict of
+                Just v ->
+                    fn k v acc
+
+                Nothing ->
+                    acc
+    in
+    OrderedDict.foldr helper acc keys
 
 
 {-| Apply a function to all values in a dictionary.
 -}
 map : (k -> a -> b) -> Dict k a -> Dict k b
-map fn (Dict bitmap nodes counter values) =
+map fn dict =
     let
-        helper : Int -> ( k, a ) -> ( k, b )
-        helper _ ( k, v ) =
-            ( k, fn k v )
+        helper k v acc =
+            insert k (fn k v) acc
     in
-    Dict bitmap nodes counter (OrderedDict.map helper values)
+    foldl helper empty dict
 
 
 {-| Keep a key-value pair when it satisfies a predicate.
@@ -600,7 +603,7 @@ filter predicate dict =
             else
                 dict
     in
-    fold helper empty dict
+    foldl helper empty dict
 
 
 {-| Partition a dictionary according to a predicate. The first dictionary
@@ -618,7 +621,7 @@ partition predicate dict =
             else
                 ( t1, insert key value t2 )
     in
-    fold helper ( empty, empty ) dict
+    foldl helper ( empty, empty ) dict
 
 
 
@@ -630,7 +633,7 @@ to the first dictionary.
 -}
 union : Dict k v -> Dict k v -> Dict k v
 union t1 t2 =
-    fold (\k v t -> insert k v t) t2 t1
+    foldl (\k v t -> insert k v t) t2 t1
 
 
 {-| Keep a key-value pair when its key appears in the second Dictionary.
@@ -648,11 +651,11 @@ intersect t1 t2 =
                 Nothing ->
                     t
     in
-    fold helper empty t1
+    foldl helper empty t1
 
 
 {-| Keep a key-value pair when its key does not appear in the second Dictionary.
 -}
 diff : Dict k v -> Dict k v -> Dict k v
 diff t1 t2 =
-    fold (\k _ t -> remove k t) t1 t2
+    foldl (\k _ t -> remove k t) t1 t2
