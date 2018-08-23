@@ -131,8 +131,8 @@ isEmpty (Dict bitmap _ _ _) =
 {-| Determine the number of key-value pairs in the dictionary.
 -}
 size : Dict k v -> Int
-size (Dict _ _ counter _) =
-    counter
+size (Dict _ _ _ values) =
+    OrderedDict.size values
 
 
 {-| Get the value associated with a key. If the key is not found, return
