@@ -43,6 +43,7 @@ module Hash.Dict exposing
 
 import Array.Hamt as Array exposing (Array)
 import Bitwise
+import Dict as OrderedDict
 import Hash.FNV as FNV
 import Hash.JsArray as JsArray exposing (JsArray)
 import List.Extra as List
@@ -67,7 +68,7 @@ type
     -- Example: The hash for key '0' tells us that the element should be
     -- stored at index 9. In the bitmap, there are no set bits (ones) before
     -- index 9, so we actually store the key-value pair at index 0.
-    = Dict Int (NodeArray k) (Array ( k, v ))
+    = Dict Int (NodeArray k) Int (OrderedDict.Dict Int ( k, v ))
 
 
 type alias NodeArray k =
@@ -107,7 +108,7 @@ bitMask =
 -}
 empty : Dict k v
 empty =
-    Dict 0 JsArray.empty Array.empty
+    Dict 0 JsArray.empty 0 OrderedDict.empty
 
 
 {-| Create a dictionary with one key-value pair.
@@ -123,15 +124,15 @@ singleton key val =
 
 -}
 isEmpty : Dict k v -> Bool
-isEmpty (Dict bitmap _ _) =
+isEmpty (Dict bitmap _ _ _) =
     bitmap == 0
 
 
 {-| Determine the number of key-value pairs in the dictionary.
 -}
 size : Dict k v -> Int
-size (Dict _ _ values) =
-    Array.length values
+size (Dict _ _ counter _) =
+    counter
 
 
 {-| Get the value associated with a key. If the key is not found, return
@@ -146,12 +147,12 @@ dictionary.
 
 -}
 get : k -> Dict k v -> Maybe v
-get key (Dict bitmap nodes values) =
+get key (Dict bitmap nodes _ values) =
     let
         idx =
             getHelp 0 (FNV.hash key) key bitmap nodes
     in
-    case Array.get idx values of
+    case OrderedDict.get idx values of
         Just ( k, v ) ->
             Just v
 
@@ -222,7 +223,7 @@ compressedIndex idx bitmap =
 {-| Determine if a key is in a dictionary.
 -}
 member : k -> Dict k v -> Bool
-member key (Dict bitmap nodes _) =
+member key (Dict bitmap nodes _ _) =
     getHelp 0 (FNV.hash key) key bitmap nodes /= -1
 
 
@@ -230,22 +231,22 @@ member key (Dict bitmap nodes _) =
 a collision.
 -}
 insert : k -> v -> Dict k v -> Dict k v
-insert key value (Dict bitmap nodes values) =
+insert key value (Dict bitmap nodes nextIndex values) =
     let
-        nextIndex =
-            Array.length values
-
         ( index, newBitmap, newNodes ) =
             insertHelp 0 (FNV.hash key) key nextIndex bitmap nodes
 
-        newValues =
+        updatedCount =
             if index == nextIndex then
-                Array.push ( key, value ) values
+                nextIndex + 1
 
             else
-                Array.set index ( key, value ) values
+                nextIndex
+
+        newValues =
+            OrderedDict.insert index ( key, value ) values
     in
-    Dict newBitmap newNodes newValues
+    Dict newBitmap newNodes updatedCount newValues
 
 
 insertHelp : Int -> Int -> k -> Int -> Int -> NodeArray k -> ( Int, Int, NodeArray k )
@@ -402,7 +403,7 @@ setByIndex mask comIdx val bitmap nodes =
 no changes are made.
 -}
 remove : k -> Dict k v -> Dict k v
-remove key (Dict bitmap nodes values) =
+remove key (Dict bitmap nodes counter values) =
     let
         ( removeIdx, newBitmap, newNodes ) =
             removeHelp 0 (FNV.hash key) key bitmap nodes
@@ -412,11 +413,9 @@ remove key (Dict bitmap nodes values) =
                 values
 
             else
-                Array.append
-                    (Array.slice 0 removeIdx values)
-                    (Array.slice (removeIdx + 1) (Array.length values) values)
+                OrderedDict.remove removeIdx values
     in
-    Dict newBitmap newNodes newValues
+    Dict newBitmap newNodes counter newValues
 
 
 removeHelp : Int -> Int -> k -> Int -> NodeArray k -> ( Int, Int, NodeArray k )
@@ -567,25 +566,25 @@ values dict =
 {-| Fold over the key-value pairs in a dictionary.
 -}
 fold : (k -> v -> b -> b) -> b -> Dict k v -> b
-fold fn acc (Dict _ _ values) =
-    Array.foldl (\( k, v ) acc -> fn k v acc) acc values
+fold fn acc (Dict _ _ _ values) =
+    OrderedDict.foldl (\_ ( k, v ) acc -> fn k v acc) acc values
 
 
 foldr : (k -> v -> b -> b) -> b -> Dict k v -> b
-foldr fn acc (Dict _ _ values) =
-    Array.foldr (\( k, v ) acc -> fn k v acc) acc values
+foldr fn acc (Dict _ _ _ values) =
+    OrderedDict.foldr (\_ ( k, v ) acc -> fn k v acc) acc values
 
 
 {-| Apply a function to all values in a dictionary.
 -}
 map : (k -> a -> b) -> Dict k a -> Dict k b
-map fn (Dict bitmap nodes values) =
+map fn (Dict bitmap nodes counter values) =
     let
-        helper : ( k, a ) -> ( k, b )
-        helper ( k, v ) =
+        helper : Int -> ( k, a ) -> ( k, b )
+        helper _ ( k, v ) =
             ( k, fn k v )
     in
-    Dict bitmap nodes (Array.map helper values)
+    Dict bitmap nodes counter (OrderedDict.map helper values)
 
 
 {-| Keep a key-value pair when it satisfies a predicate.
