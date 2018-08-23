@@ -4,6 +4,7 @@
     "dev": "elm-test --fuzz=100 --watch"
   },
   "devDependencies": {
+    "elm": "0.18.0",
     "elm-test": "^0.18.7"
   },
   "dependencies": {}
