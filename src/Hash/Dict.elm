@@ -219,22 +219,16 @@ member key (Dict bitmap nodes _ _) =
 a collision.
 -}
 insert : k -> v -> Dict k v -> Dict k v
-insert key value (Dict bitmap nodes nextIndex values) =
+insert key value (Dict bitmap nodes nextIndex keys) =
     let
         ( index, newBitmap, newNodes ) =
             insertHelp 0 (FNV.hash key) nextIndex key value bitmap nodes
-
-        updatedCount =
-            if index == nextIndex then
-                nextIndex + 1
-
-            else
-                nextIndex
-
-        newValues =
-            OrderedDict.insert index key values
     in
-    Dict newBitmap newNodes updatedCount newValues
+    if index == nextIndex then
+        Dict newBitmap newNodes (nextIndex + 1) (OrderedDict.insert nextIndex key keys)
+
+    else
+        Dict newBitmap newNodes nextIndex keys
 
 
 insertHelp : Int -> Int -> Int -> k -> v -> Int -> NodeArray k v -> ( Int, Int, NodeArray k v )

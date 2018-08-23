@@ -60,6 +60,11 @@ suite n =
             (\_ -> Dict.fromList ls)
             "Hash"
             (\_ -> Dict2.fromList ls)
+        , Benchmark.compare "Replace"
+            "LLRB"
+            (\_ -> inserter Dict.insert ls original)
+            "Hash"
+            (\_ -> inserter Dict2.insert ls updated)
         , Benchmark.compare "Remove"
             "Core"
             (\_ -> remover Dict.remove keys original)
@@ -111,6 +116,11 @@ suite n =
 getter : (a -> b -> c) -> List a -> b -> List c
 getter f keys dict =
     List.foldl (\k acc -> f k dict :: acc) [] keys
+
+
+inserter : (k -> v -> acc -> acc) -> List ( k, v ) -> acc -> acc
+inserter f pairs dict =
+    List.foldl (\( k, v ) acc -> f k v acc) dict pairs
 
 
 updater : (a -> b -> c -> c) -> b -> List a -> c -> c
