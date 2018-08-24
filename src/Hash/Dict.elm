@@ -68,7 +68,7 @@ type
     -- Example: The hash for key '0' tells us that the element should be
     -- stored at index 9. In the bitmap, there are no set bits (ones) before
     -- index 9, so we actually store the key-value pair at index 0.
-    = Dict Int (NodeArray k v) Int (OrderedDict.Dict Int k)
+    = Dict Int (NodeArray k v) Int (OrderedDict.Dict Int ( Int, k, v ))
 
 
 type alias NodeArray k v =
@@ -219,16 +219,22 @@ member key (Dict bitmap nodes _ _) =
 a collision.
 -}
 insert : k -> v -> Dict k v -> Dict k v
-insert key value (Dict bitmap nodes nextIndex keys) =
+insert key value (Dict bitmap nodes nextIndex triplets) =
     let
+        hash =
+            FNV.hash key
+
         ( index, newBitmap, newNodes ) =
-            insertHelp 0 (FNV.hash key) nextIndex key value bitmap nodes
+            insertHelp 0 hash nextIndex key value bitmap nodes
+
+        newTriplets =
+            OrderedDict.insert index ( hash, key, value ) triplets
     in
     if index == nextIndex then
-        Dict newBitmap newNodes (nextIndex + 1) (OrderedDict.insert nextIndex key keys)
+        Dict newBitmap newNodes (nextIndex + 1) newTriplets
 
     else
-        Dict newBitmap newNodes nextIndex keys
+        Dict newBitmap newNodes nextIndex newTriplets
 
 
 insertHelp : Int -> Int -> Int -> k -> v -> Int -> NodeArray k v -> ( Int, Int, NodeArray k v )
@@ -525,8 +531,8 @@ toList dict =
 
 -}
 keys : Dict k v -> List k
-keys (Dict _ _ _ keys) =
-    OrderedDict.values keys
+keys (Dict _ _ _ triplets) =
+    OrderedDict.foldr (\_ ( _, k, _ ) acc -> k :: acc) [] triplets
 
 
 {-| Get all of the values in a dictionary as a List.
@@ -535,8 +541,8 @@ keys (Dict _ _ _ keys) =
 
 -}
 values : Dict k v -> List v
-values dict =
-    foldr (\_ v acc -> v :: acc) [] dict
+values (Dict _ _ _ triplets) =
+    OrderedDict.foldr (\_ ( _, _, v ) acc -> v :: acc) [] triplets
 
 
 
@@ -548,13 +554,8 @@ values dict =
 foldl : (k -> v -> b -> b) -> b -> Dict k v -> b
 foldl fn acc ((Dict _ _ _ keys) as dict) =
     let
-        helper idx k acc =
-            case get k dict of
-                Just v ->
-                    fn k v acc
-
-                Nothing ->
-                    acc
+        helper idx ( _, k, v ) acc =
+            fn k v acc
     in
     OrderedDict.foldl helper acc keys
 
@@ -562,13 +563,8 @@ foldl fn acc ((Dict _ _ _ keys) as dict) =
 foldr : (k -> v -> b -> b) -> b -> Dict k v -> b
 foldr fn acc ((Dict _ _ _ keys) as dict) =
     let
-        helper idx k acc =
-            case get k dict of
-                Just v ->
-                    fn k v acc
-
-                Nothing ->
-                    acc
+        helper idx ( _, k, v ) acc =
+            fn k v acc
     in
     OrderedDict.foldr helper acc keys
 
