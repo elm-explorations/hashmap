@@ -92,6 +92,15 @@ tests =
                     \() -> Expect.equal (Dict.singleton "k" "v") (Dict.remove "kk" (Dict.singleton "k" "v"))
                 , test "fromList excludes duplicates" <|
                     \() -> Expect.equal (Dict.singleton 1 1) (Dict.fromList [ ( 1, 1 ), ( 1, 1 ) ])
+                , test "size" <|
+                    \() ->
+                        Dict.empty
+                            |> Dict.insert "k1" "v"
+                            |> Dict.insert "k2" "v"
+                            |> Dict.insert "k1" "y"
+                            |> Dict.remove "k2"
+                            |> Dict.size
+                            |> Expect.equal 1
                 ]
 
         queryTests =
