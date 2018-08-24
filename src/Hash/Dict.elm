@@ -227,14 +227,17 @@ insert key value (Dict bitmap nodes nextIndex triplets) =
         ( index, newBitmap, newNodes ) =
             insertHelp 0 hash nextIndex key value bitmap nodes
 
+        newNextIndex =
+            if index == nextIndex then
+                nextIndex + 1
+
+            else
+                nextIndex
+
         newTriplets =
             OrderedDict.insert index ( hash, key, value ) triplets
     in
-    if index == nextIndex then
-        Dict newBitmap newNodes (nextIndex + 1) newTriplets
-
-    else
-        Dict newBitmap newNodes nextIndex newTriplets
+    Dict newBitmap newNodes newNextIndex newTriplets
 
 
 insertHelp : Int -> Int -> Int -> k -> v -> Int -> NodeArray k v -> ( Int, Int, NodeArray k v )
