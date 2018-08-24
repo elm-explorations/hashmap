@@ -46,12 +46,12 @@ type alias CollisionObject =
 
 firstCollider : CollisionObject
 firstCollider =
-    { a = 42508, b = "42508" }
+    { a = 449311, b = "449311" }
 
 
 secondCollider : CollisionObject
 secondCollider =
-    { a = 63992, b = "63992" }
+    { a = 989797, b = "989797" }
 
 
 collisionObjects : List CollisionObject
