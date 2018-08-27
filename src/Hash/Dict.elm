@@ -220,28 +220,20 @@ a collision.
 -}
 insert : k -> v -> Dict k v -> Dict k v
 insert key value (Dict bitmap nodes nextIndex triplets) =
-    let
-        hash =
-            FNV.hash key
-
-        ( index, newBitmap, newNodes ) =
-            insertHelp 0 hash nextIndex key value bitmap nodes
-
-        newNextIndex =
-            if index == nextIndex then
-                nextIndex + 1
-
-            else
-                nextIndex
-
-        newTriplets =
-            OrderedDict.insert index ( hash, key, value ) triplets
-    in
-    Dict newBitmap newNodes newNextIndex newTriplets
+    insertHelp 0 (FNV.hash key) key value bitmap nodes nextIndex triplets
 
 
-insertHelp : Int -> Int -> Int -> k -> v -> Int -> NodeArray k v -> ( Int, Int, NodeArray k v )
-insertHelp shift hash idx key value bitmap nodes =
+insertHelp :
+    Int
+    -> Int
+    -> k
+    -> v
+    -> Int
+    -> NodeArray k v
+    -> Int
+    -> OrderedDict.Dict Int ( Int, k, v )
+    -> Dict k v
+insertHelp shift hash key value bitmap nodes nextIndex triplets =
     let
         uncompressedIdx =
             Bitwise.and bitMask (Bitwise.shiftRightZfBy shift hash)
@@ -263,76 +255,88 @@ insertHelp shift hash idx key value bitmap nodes =
             Leaf xHash xIdx xKey xVal ->
                 if xHash == hash then
                     if xKey == key then
-                        ( xIdx
-                        , bitmap
-                        , setByIndex mask comIdx (Leaf xHash xIdx xKey value) bitmap nodes
-                        )
+                        Dict
+                            bitmap
+                            (setByIndex mask comIdx (Leaf xHash xIdx xKey value) bitmap nodes)
+                            nextIndex
+                            (OrderedDict.insert xIdx ( hash, key, value ) triplets)
 
                     else
                         let
                             element =
-                                Collision hash [ ( idx, key, value ), ( xIdx, xKey, xVal ) ]
+                                Collision hash [ ( nextIndex, key, value ), ( xIdx, xKey, xVal ) ]
                         in
-                        ( idx
-                        , bitmap
-                        , setByIndex mask comIdx element bitmap nodes
-                        )
+                        Dict
+                            bitmap
+                            (setByIndex mask comIdx element bitmap nodes)
+                            (nextIndex + 1)
+                            (OrderedDict.insert nextIndex ( hash, key, value ) triplets)
 
                 else
                     let
-                        ( _, firstBitmap, firstNodes ) =
-                            insertHelp newShift xHash xIdx xKey xVal 0 JsArray.empty
+                        (Dict firstBitmap firstNodes _ _) =
+                            insertHelp newShift xHash xKey xVal 0 JsArray.empty xIdx triplets
 
-                        ( _, secondBitmap, secondNodes ) =
+                        (Dict secondBitmap secondNodes newNextIndex newTriplets) =
                             insertHelp
                                 newShift
                                 hash
-                                idx
                                 key
                                 value
                                 firstBitmap
                                 firstNodes
+                                nextIndex
+                                triplets
 
                         subTree =
                             SubTree secondBitmap secondNodes
                     in
-                    ( idx
-                    , Bitwise.or bitmap mask
-                    , setByIndex mask comIdx subTree bitmap nodes
-                    )
+                    Dict
+                        (Bitwise.or bitmap mask)
+                        (setByIndex mask comIdx subTree bitmap nodes)
+                        newNextIndex
+                        newTriplets
 
             SubTree subBitmap subNodes ->
                 let
-                    ( newIdx, newSubBitmap, newSubNodes ) =
-                        insertHelp newShift hash idx key value subBitmap subNodes
+                    (Dict newSubBitmap newSubNodes newIdx newTriplets) =
+                        insertHelp newShift hash key value subBitmap subNodes nextIndex triplets
 
                     newSub =
                         SubTree newSubBitmap newSubNodes
                 in
-                ( newIdx
-                , Bitwise.or bitmap mask
-                , setByIndex mask comIdx newSub bitmap nodes
-                )
+                Dict
+                    (Bitwise.or bitmap mask)
+                    (setByIndex mask comIdx newSub bitmap nodes)
+                    newIdx
+                    newTriplets
 
             (Collision xHash pairs) as currValue ->
                 if xHash == hash then
                     case List.find (\( _, k, _ ) -> k == key) pairs of
                         Just ( existingIdx, _, _ ) ->
-                            ( existingIdx
-                            , bitmap
-                            , nodes
-                            )
-
-                        Nothing ->
-                            ( idx
-                            , bitmap
-                            , setByIndex
-                                mask
-                                comIdx
-                                (Collision hash (( idx, key, value ) :: pairs))
+                            -- TODO: Need to update the value in collision list
+                            Dict
                                 bitmap
                                 nodes
-                            )
+                                nextIndex
+                                (OrderedDict.insert existingIdx ( hash, key, value ) triplets)
+
+                        Nothing ->
+                            let
+                                newNodes =
+                                    setByIndex
+                                        mask
+                                        comIdx
+                                        (Collision hash (( nextIndex, key, value ) :: pairs))
+                                        bitmap
+                                        nodes
+                            in
+                            Dict
+                                bitmap
+                                newNodes
+                                (nextIndex + 1)
+                                (OrderedDict.insert nextIndex ( hash, key, value ) triplets)
 
                 else
                     let
@@ -345,43 +349,44 @@ insertHelp shift hash idx key value bitmap nodes =
                         collisionMask =
                             Bitwise.shiftLeftBy collisionPos 1
 
-                        ( _, subBitmap, subNodes ) =
+                        collisionNodes =
+                            setByIndex
+                                collisionMask
+                                collisionNodePos
+                                currValue
+                                0
+                                JsArray.empty
+
+                        (Dict subBitmap subNodes subIndex subTriplets) =
                             insertHelp
                                 newShift
                                 hash
-                                idx
                                 key
                                 value
                                 (Bitwise.or 0 collisionMask)
-                                (setByIndex
-                                    collisionMask
-                                    collisionNodePos
-                                    currValue
-                                    0
-                                    JsArray.empty
-                                )
+                                collisionNodes
+                                nextIndex
+                                triplets
                     in
-                    ( idx
-                    , Bitwise.or bitmap mask
-                    , setByIndex mask comIdx (SubTree subBitmap subNodes) bitmap nodes
-                    )
+                    Dict
+                        (Bitwise.or bitmap mask)
+                        (setByIndex mask comIdx (SubTree subBitmap subNodes) bitmap nodes)
+                        subIndex
+                        subTriplets
 
     else
-        ( idx
-        , Bitwise.or bitmap mask
-        , setByIndex mask comIdx (Leaf hash idx key value) bitmap nodes
-        )
+        Dict
+            (Bitwise.or bitmap mask)
+            (setByIndex mask comIdx (Leaf hash nextIndex key value) bitmap nodes)
+            (nextIndex + 1)
+            (OrderedDict.insert nextIndex ( hash, key, value ) triplets)
 
 
 {-| Insert a Node at the given index, returning an updated Dict.
 -}
 setByIndex : Int -> Int -> Node k v -> Int -> NodeArray k v -> NodeArray k v
 setByIndex mask comIdx val bitmap nodes =
-    let
-        shouldReplace =
-            Bitwise.and bitmap mask == mask
-    in
-    if shouldReplace then
+    if Bitwise.and bitmap mask == mask then
         JsArray.unsafeSet comIdx val nodes
 
     else
