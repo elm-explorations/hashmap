@@ -502,17 +502,17 @@ determines if the value is updated or removed. New key-value pairs can be
 inserted too.
 -}
 update : k -> (Maybe v -> Maybe v) -> Dict k v -> Dict k v
-update key fn dict =
+update key fn ((Dict bitmap nodes nextIndex triplets) as dict) =
     let
         hash =
             FNV.hash key
     in
-    case fn (get key dict) of
+    case fn (getHelp 0 hash key bitmap nodes) of
         Nothing ->
             remove key dict
 
-        Just val ->
-            insert key val dict
+        Just value ->
+            insertHelp 0 hash key value bitmap nodes nextIndex triplets
 
 
 
@@ -529,8 +529,8 @@ fromList list =
 {-| Convert a dictionary into an association list of key-value pairs.
 -}
 toList : Dict k v -> List ( k, v )
-toList dict =
-    foldr (\k v acc -> ( k, v ) :: acc) [] dict
+toList (Dict _ _ _ triplets) =
+    OrderedDict.foldr (\_ ( _, k, v ) acc -> ( k, v ) :: acc) [] triplets
 
 
 {-| Get all of the keys in a dictionary.
@@ -562,46 +562,49 @@ values (Dict _ _ _ triplets) =
 foldl : (k -> v -> b -> b) -> b -> Dict k v -> b
 foldl fn acc ((Dict _ _ _ keys) as dict) =
     let
-        helper idx ( _, k, v ) acc =
-            fn k v acc
+        helper : Int -> ( Int, k, v ) -> b -> b
+        helper idx ( _, key, value ) acc =
+            fn key value acc
     in
     OrderedDict.foldl helper acc keys
 
 
 foldr : (k -> v -> b -> b) -> b -> Dict k v -> b
-foldr fn acc ((Dict _ _ _ keys) as dict) =
+foldr fn acc ((Dict _ _ _ triplets) as dict) =
     let
-        helper idx ( _, k, v ) acc =
-            fn k v acc
+        helper : Int -> ( Int, k, v ) -> b -> b
+        helper _ ( _, key, value ) acc =
+            fn key value acc
     in
-    OrderedDict.foldr helper acc keys
+    OrderedDict.foldr helper acc triplets
 
 
 {-| Apply a function to all values in a dictionary.
 -}
 map : (k -> a -> b) -> Dict k a -> Dict k b
-map fn dict =
+map fn (Dict _ _ _ rootTriplets) =
     let
-        helper k v acc =
-            insert k (fn k v) acc
+        helper : Int -> ( Int, k, a ) -> Dict k b -> Dict k b
+        helper _ ( hash, key, value ) (Dict bitmap nodes nextIndex triplets) =
+            insertHelp 0 hash key (fn key value) bitmap nodes nextIndex triplets
     in
-    foldl helper empty dict
+    OrderedDict.foldl helper empty rootTriplets
 
 
 {-| Keep a key-value pair when it satisfies a predicate.
 -}
 filter : (k -> v -> Bool) -> Dict k v -> Dict k v
-filter predicate dict =
+filter predicate (Dict _ _ _ rootTriplets) =
     let
-        helper : k -> v -> Dict k v -> Dict k v
-        helper key value dict =
+        helper : Int -> ( Int, k, v ) -> Dict k v -> Dict k v
+        helper _ ( hash, key, value ) ((Dict bitmap nodes nextIndex triplets) as dict) =
             if predicate key value then
-                insert key value dict
+                insertHelp 0 hash key value bitmap nodes nextIndex triplets
 
             else
                 dict
     in
-    foldl helper empty dict
+    OrderedDict.foldl helper empty rootTriplets
 
 
 {-| Partition a dictionary according to a predicate. The first dictionary
@@ -609,17 +612,17 @@ contains all key-value pairs which satisfy the predicate, and the second
 contains the rest.
 -}
 partition : (k -> v -> Bool) -> Dict k v -> ( Dict k v, Dict k v )
-partition predicate dict =
+partition predicate (Dict _ _ _ rootTriplets) =
     let
-        helper : k -> v -> ( Dict k v, Dict k v ) -> ( Dict k v, Dict k v )
-        helper key value ( t1, t2 ) =
+        helper : Int -> ( Int, k, v ) -> ( Dict k v, Dict k v ) -> ( Dict k v, Dict k v )
+        helper _ ( hash, key, value ) ( (Dict bitmap1 nodes1 nextIndex1 triplets1) as t1, (Dict bitmap2 nodes2 nextIndex2 triplets2) as t2 ) =
             if predicate key value then
-                ( insert key value t1, t2 )
+                ( insertHelp 0 hash key value bitmap1 nodes1 nextIndex1 triplets1, t2 )
 
             else
-                ( t1, insert key value t2 )
+                ( t1, insertHelp 0 hash key value bitmap2 nodes2 nextIndex2 triplets2 )
     in
-    foldl helper ( empty, empty ) dict
+    OrderedDict.foldl helper ( empty, empty ) rootTriplets
 
 
 
@@ -630,26 +633,31 @@ partition predicate dict =
 to the first dictionary.
 -}
 union : Dict k v -> Dict k v -> Dict k v
-union t1 t2 =
-    foldl (\k v t -> insert k v t) t2 t1
+union (Dict _ _ _ t1Triplets) t2 =
+    let
+        helper : Int -> ( Int, k, v ) -> Dict k v -> Dict k v
+        helper _ ( hash, key, value ) (Dict bitmap nodes nextIndex triplets) =
+            insertHelp 0 hash key value bitmap nodes nextIndex triplets
+    in
+    OrderedDict.foldl helper t2 t1Triplets
 
 
 {-| Keep a key-value pair when its key appears in the second Dictionary.
 Preference is given to values in the first Dictionary.
 -}
 intersect : Dict k v -> Dict k v -> Dict k v
-intersect t1 t2 =
+intersect (Dict _ _ _ t1Triplets) t2 =
     let
-        helper : k -> v -> Dict k v -> Dict k v
-        helper k v t =
-            case get k t2 of
+        helper : Int -> ( Int, k, v ) -> Dict k v -> Dict k v
+        helper _ ( hash, key, value ) ((Dict bitmap nodes nextIndex triplets) as dict) =
+            case get key t2 of
                 Just _ ->
-                    insert k v t
+                    insertHelp 0 hash key value bitmap nodes nextIndex triplets
 
                 Nothing ->
-                    t
+                    dict
     in
-    foldl helper empty t1
+    OrderedDict.foldl helper empty t1Triplets
 
 
 {-| Keep a key-value pair when its key does not appear in the second Dictionary.
