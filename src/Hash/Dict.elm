@@ -43,7 +43,6 @@ module Hash.Dict exposing
 
 import Array.Hamt as Array exposing (Array)
 import Bitwise
-import Dict as OrderedDict
 import Hash.FNV as FNV
 import Hash.JsArray as JsArray exposing (JsArray)
 import List.Extra as List
@@ -68,7 +67,7 @@ type
     -- Example: The hash for key '0' tells us that the element should be
     -- stored at index 9. In the bitmap, there are no set bits (ones) before
     -- index 9, so we actually store the key-value pair at index 0.
-    = Dict Int (NodeArray k v) Int (OrderedDict.Dict Int ( Int, k, v ))
+    = Dict Int (NodeArray k v) Int (Array (ArrayValue k v))
 
 
 type alias NodeArray k v =
@@ -86,6 +85,11 @@ type
     = Leaf Int Int k v
     | SubTree Int (NodeArray k v)
     | Collision Int (List ( Int, k, v ))
+
+
+type ArrayValue k v
+    = Removed
+    | Value Int k v
 
 
 {-| How many bits represents the branching factor (32). Read Array documentation for
@@ -108,7 +112,7 @@ bitMask =
 -}
 empty : Dict k v
 empty =
-    Dict 0 JsArray.empty 0 OrderedDict.empty
+    Dict 0 JsArray.empty 0 Array.empty
 
 
 {-| Create a dictionary with one key-value pair.
@@ -131,8 +135,18 @@ isEmpty (Dict bitmap _ _ _) =
 {-| Determine the number of key-value pairs in the dictionary.
 -}
 size : Dict k v -> Int
-size (Dict _ _ _ values) =
-    OrderedDict.size values
+size (Dict _ _ _ triplets) =
+    let
+        helper : ArrayValue k v -> Int -> Int
+        helper value acc =
+            case value of
+                Removed ->
+                    acc
+
+                Value _ _ _ ->
+                    acc + 1
+    in
+    Array.foldl helper 0 triplets
 
 
 {-| Get the value associated with a key. If the key is not found, return
@@ -231,7 +245,7 @@ insertHelp :
     -> Int
     -> NodeArray k v
     -> Int
-    -> OrderedDict.Dict Int ( Int, k, v )
+    -> Array (ArrayValue k v)
     -> Dict k v
 insertHelp shift hash key value bitmap nodes nextIndex triplets =
     let
@@ -259,7 +273,7 @@ insertHelp shift hash key value bitmap nodes nextIndex triplets =
                             bitmap
                             (JsArray.unsafeSet comIdx (Leaf xHash xIdx xKey value) nodes)
                             nextIndex
-                            (OrderedDict.insert xIdx ( hash, key, value ) triplets)
+                            (Array.set xIdx (Value hash key value) triplets)
 
                     else
                         let
@@ -270,7 +284,7 @@ insertHelp shift hash key value bitmap nodes nextIndex triplets =
                             bitmap
                             (JsArray.unsafeSet comIdx element nodes)
                             (nextIndex + 1)
-                            (OrderedDict.insert nextIndex ( hash, key, value ) triplets)
+                            (Array.push (Value hash key value) triplets)
 
                 else
                     let
@@ -330,7 +344,7 @@ insertHelp shift hash key value bitmap nodes nextIndex triplets =
                                 bitmap
                                 (JsArray.unsafeSet comIdx (Collision xHash updated) nodes)
                                 nextIndex
-                                (OrderedDict.insert existingIdx ( hash, key, value ) triplets)
+                                (Array.set existingIdx (Value hash key value) triplets)
 
                         Nothing ->
                             let
@@ -341,7 +355,7 @@ insertHelp shift hash key value bitmap nodes nextIndex triplets =
                                 bitmap
                                 (JsArray.unsafeSet comIdx (Collision hash updated) nodes)
                                 (nextIndex + 1)
-                                (OrderedDict.insert nextIndex ( hash, key, value ) triplets)
+                                (Array.push (Value hash key value) triplets)
 
                 else
                     let
@@ -373,7 +387,7 @@ insertHelp shift hash key value bitmap nodes nextIndex triplets =
             (Bitwise.or bitmap mask)
             (JsArray.unsafeInsert comIdx (Leaf hash nextIndex key value) nodes)
             (nextIndex + 1)
-            (OrderedDict.insert nextIndex ( hash, key, value ) triplets)
+            (Array.push (Value hash key value) triplets)
 
 
 {-| Remove a key-value pair from a dictionary. If the key is not found,
@@ -391,7 +405,7 @@ removeHelp :
     -> Int
     -> NodeArray k v
     -> Int
-    -> OrderedDict.Dict Int ( Int, k, v )
+    -> Array (ArrayValue k v)
     -> Dict k v
 removeHelp shift hash key bitmap nodes nextIndex triplets =
     let
@@ -415,7 +429,7 @@ removeHelp shift hash key bitmap nodes nextIndex triplets =
                         (Bitwise.xor bitmap mask)
                         (JsArray.removeIndex compIdx nodes)
                         nextIndex
-                        (OrderedDict.remove eIdx triplets)
+                        (Array.set eIdx Removed triplets)
 
                 else
                     Dict bitmap nodes nextIndex triplets
@@ -463,7 +477,7 @@ removeHelp shift hash key bitmap nodes nextIndex triplets =
                     newTriplets =
                         case maybeIdx of
                             Just removeIdx ->
-                                OrderedDict.remove removeIdx triplets
+                                Array.set removeIdx Removed triplets
 
                             Nothing ->
                                 triplets
@@ -531,8 +545,8 @@ fromList list =
 {-| Convert a dictionary into an association list of key-value pairs.
 -}
 toList : Dict k v -> List ( k, v )
-toList (Dict _ _ _ triplets) =
-    OrderedDict.foldr (\_ ( _, k, v ) acc -> ( k, v ) :: acc) [] triplets
+toList dict =
+    foldr (\k v acc -> ( k, v ) :: acc) [] dict
 
 
 {-| Get all of the keys in a dictionary.
@@ -541,8 +555,8 @@ toList (Dict _ _ _ triplets) =
 
 -}
 keys : Dict k v -> List k
-keys (Dict _ _ _ triplets) =
-    OrderedDict.foldr (\_ ( _, k, _ ) acc -> k :: acc) [] triplets
+keys dict =
+    foldr (\k _ acc -> k :: acc) [] dict
 
 
 {-| Get all of the values in a dictionary as a List.
@@ -551,8 +565,8 @@ keys (Dict _ _ _ triplets) =
 
 -}
 values : Dict k v -> List v
-values (Dict _ _ _ triplets) =
-    OrderedDict.foldr (\_ ( _, _, v ) acc -> v :: acc) [] triplets
+values dict =
+    foldr (\_ v acc -> v :: acc) [] dict
 
 
 
@@ -562,23 +576,33 @@ values (Dict _ _ _ triplets) =
 {-| Fold over the key-value pairs in a dictionary.
 -}
 foldl : (k -> v -> b -> b) -> b -> Dict k v -> b
-foldl fn acc ((Dict _ _ _ keys) as dict) =
+foldl fn acc (Dict _ _ _ triplets) =
     let
-        helper : Int -> ( Int, k, v ) -> b -> b
-        helper idx ( _, key, value ) acc =
-            fn key value acc
+        helper : ArrayValue k v -> b -> b
+        helper arrayValue acc =
+            case arrayValue of
+                Removed ->
+                    acc
+
+                Value _ key value ->
+                    fn key value acc
     in
-    OrderedDict.foldl helper acc keys
+    Array.foldl helper acc triplets
 
 
 foldr : (k -> v -> b -> b) -> b -> Dict k v -> b
-foldr fn acc ((Dict _ _ _ triplets) as dict) =
+foldr fn acc (Dict _ _ _ triplets) =
     let
-        helper : Int -> ( Int, k, v ) -> b -> b
-        helper _ ( _, key, value ) acc =
-            fn key value acc
+        helper : ArrayValue k v -> b -> b
+        helper arrayValue acc =
+            case arrayValue of
+                Removed ->
+                    acc
+
+                Value _ key value ->
+                    fn key value acc
     in
-    OrderedDict.foldr helper acc triplets
+    Array.foldr helper acc triplets
 
 
 {-| Apply a function to all values in a dictionary.
@@ -586,11 +610,16 @@ foldr fn acc ((Dict _ _ _ triplets) as dict) =
 map : (k -> a -> b) -> Dict k a -> Dict k b
 map fn (Dict _ _ _ rootTriplets) =
     let
-        helper : Int -> ( Int, k, a ) -> Dict k b -> Dict k b
-        helper _ ( hash, key, value ) (Dict bitmap nodes nextIndex triplets) =
-            insertHelp 0 hash key (fn key value) bitmap nodes nextIndex triplets
+        helper : ArrayValue k a -> Dict k b -> Dict k b
+        helper arrayValue ((Dict bitmap nodes nextIndex triplets) as dict) =
+            case arrayValue of
+                Removed ->
+                    dict
+
+                Value hash key value ->
+                    insertHelp 0 hash key (fn key value) bitmap nodes nextIndex triplets
     in
-    OrderedDict.foldl helper empty rootTriplets
+    Array.foldl helper empty rootTriplets
 
 
 {-| Keep a key-value pair when it satisfies a predicate.
@@ -598,15 +627,20 @@ map fn (Dict _ _ _ rootTriplets) =
 filter : (k -> v -> Bool) -> Dict k v -> Dict k v
 filter predicate (Dict _ _ _ rootTriplets) =
     let
-        helper : Int -> ( Int, k, v ) -> Dict k v -> Dict k v
-        helper _ ( hash, key, value ) ((Dict bitmap nodes nextIndex triplets) as dict) =
-            if predicate key value then
-                insertHelp 0 hash key value bitmap nodes nextIndex triplets
+        helper : ArrayValue k v -> Dict k v -> Dict k v
+        helper arrayValue ((Dict bitmap nodes nextIndex triplets) as dict) =
+            case arrayValue of
+                Removed ->
+                    dict
 
-            else
-                dict
+                Value hash key value ->
+                    if predicate key value then
+                        insertHelp 0 hash key value bitmap nodes nextIndex triplets
+
+                    else
+                        dict
     in
-    OrderedDict.foldl helper empty rootTriplets
+    Array.foldl helper empty rootTriplets
 
 
 {-| Partition a dictionary according to a predicate. The first dictionary
@@ -616,15 +650,20 @@ contains the rest.
 partition : (k -> v -> Bool) -> Dict k v -> ( Dict k v, Dict k v )
 partition predicate (Dict _ _ _ rootTriplets) =
     let
-        helper : Int -> ( Int, k, v ) -> ( Dict k v, Dict k v ) -> ( Dict k v, Dict k v )
-        helper _ ( hash, key, value ) ( (Dict bitmap1 nodes1 nextIndex1 triplets1) as t1, (Dict bitmap2 nodes2 nextIndex2 triplets2) as t2 ) =
-            if predicate key value then
-                ( insertHelp 0 hash key value bitmap1 nodes1 nextIndex1 triplets1, t2 )
+        helper : ArrayValue k v -> ( Dict k v, Dict k v ) -> ( Dict k v, Dict k v )
+        helper arrayValue ( (Dict bitmap1 nodes1 nextIndex1 triplets1) as t1, (Dict bitmap2 nodes2 nextIndex2 triplets2) as t2 ) =
+            case arrayValue of
+                Removed ->
+                    ( t1, t2 )
 
-            else
-                ( t1, insertHelp 0 hash key value bitmap2 nodes2 nextIndex2 triplets2 )
+                Value hash key value ->
+                    if predicate key value then
+                        ( insertHelp 0 hash key value bitmap1 nodes1 nextIndex1 triplets1, t2 )
+
+                    else
+                        ( t1, insertHelp 0 hash key value bitmap2 nodes2 nextIndex2 triplets2 )
     in
-    OrderedDict.foldl helper ( empty, empty ) rootTriplets
+    Array.foldl helper ( empty, empty ) rootTriplets
 
 
 
@@ -637,29 +676,39 @@ to the first dictionary.
 union : Dict k v -> Dict k v -> Dict k v
 union (Dict _ _ _ t1Triplets) t2 =
     let
-        helper : Int -> ( Int, k, v ) -> Dict k v -> Dict k v
-        helper _ ( hash, key, value ) (Dict bitmap nodes nextIndex triplets) =
-            insertHelp 0 hash key value bitmap nodes nextIndex triplets
+        helper : ArrayValue k v -> Dict k v -> Dict k v
+        helper arrayValue ((Dict bitmap nodes nextIndex triplets) as dict) =
+            case arrayValue of
+                Removed ->
+                    dict
+
+                Value hash key value ->
+                    insertHelp 0 hash key value bitmap nodes nextIndex triplets
     in
-    OrderedDict.foldl helper t2 t1Triplets
+    Array.foldl helper t2 t1Triplets
 
 
 {-| Keep a key-value pair when its key appears in the second Dictionary.
 Preference is given to values in the first Dictionary.
 -}
 intersect : Dict k v -> Dict k v -> Dict k v
-intersect (Dict _ _ _ t1Triplets) t2 =
+intersect (Dict _ _ _ t1Triplets) (Dict t2Bitmap t2Nodes _ _) =
     let
-        helper : Int -> ( Int, k, v ) -> Dict k v -> Dict k v
-        helper _ ( hash, key, value ) ((Dict bitmap nodes nextIndex triplets) as dict) =
-            case get key t2 of
-                Just _ ->
-                    insertHelp 0 hash key value bitmap nodes nextIndex triplets
-
-                Nothing ->
+        helper : ArrayValue k v -> Dict k v -> Dict k v
+        helper arrayValue ((Dict bitmap nodes nextIndex triplets) as dict) =
+            case arrayValue of
+                Removed ->
                     dict
+
+                Value hash key value ->
+                    case getHelp 0 hash key t2Bitmap t2Nodes of
+                        Nothing ->
+                            dict
+
+                        Just _ ->
+                            insertHelp 0 hash key value bitmap nodes nextIndex triplets
     in
-    OrderedDict.foldl helper empty t1Triplets
+    Array.foldl helper empty t1Triplets
 
 
 {-| Keep a key-value pair when its key does not appear in the second Dictionary.
@@ -667,8 +716,13 @@ intersect (Dict _ _ _ t1Triplets) t2 =
 diff : Dict k v -> Dict k v -> Dict k v
 diff t1 (Dict _ _ _ t2Triplets) =
     let
-        helper : Int -> ( Int, k, v ) -> Dict k v -> Dict k v
-        helper _ ( hash, key, value ) (Dict bitmap nodes nextIndex triplets) =
-            removeHelp 0 hash key bitmap nodes nextIndex triplets
+        helper : ArrayValue k v -> Dict k v -> Dict k v
+        helper arrayValue ((Dict bitmap nodes nextIndex triplets) as dict) =
+            case arrayValue of
+                Removed ->
+                    dict
+
+                Value hash key value ->
+                    removeHelp 0 hash key bitmap nodes nextIndex triplets
     in
-    OrderedDict.foldl helper t1 t2Triplets
+    Array.foldl helper t1 t2Triplets
