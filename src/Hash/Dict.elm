@@ -430,10 +430,17 @@ removeHelp shift hash key bitmap nodes =
                     ( removeIdx, newSubBitmap, newSubNodes ) =
                         removeHelp (shift + shiftStep) hash key subBitmap subNodes
                 in
-                ( removeIdx
-                , bitmap
-                , JsArray.unsafeSet compIdx (SubTree newSubBitmap newSubNodes) nodes
-                )
+                if newSubBitmap == 0 then
+                    ( removeIdx
+                    , Bitwise.xor bitmap mask
+                    , JsArray.removeIndex compIdx nodes
+                    )
+
+                else
+                    ( removeIdx
+                    , bitmap
+                    , JsArray.unsafeSet compIdx (SubTree newSubBitmap newSubNodes) nodes
+                    )
 
             Collision _ vals ->
                 let
