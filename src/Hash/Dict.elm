@@ -380,23 +380,20 @@ insertHelp shift hash key value bitmap nodes nextIndex triplets =
 no changes are made.
 -}
 remove : k -> Dict k v -> Dict k v
-remove key (Dict bitmap nodes counter values) =
-    let
-        ( removeIdx, newBitmap, newNodes ) =
-            removeHelp 0 (FNV.hash key) key bitmap nodes
-
-        newValues =
-            if removeIdx == -1 then
-                values
-
-            else
-                OrderedDict.remove removeIdx values
-    in
-    Dict newBitmap newNodes counter newValues
+remove key (Dict bitmap nodes nextIndex triplets) =
+    removeHelp 0 (FNV.hash key) key bitmap nodes nextIndex triplets
 
 
-removeHelp : Int -> Int -> k -> Int -> NodeArray k v -> ( Int, Int, NodeArray k v )
-removeHelp shift hash key bitmap nodes =
+removeHelp :
+    Int
+    -> Int
+    -> k
+    -> Int
+    -> NodeArray k v
+    -> Int
+    -> OrderedDict.Dict Int ( Int, k, v )
+    -> Dict k v
+removeHelp shift hash key bitmap nodes nextIndex triplets =
     let
         uncompIdx =
             Bitwise.and bitMask (Bitwise.shiftRightZfBy shift hash)
@@ -414,68 +411,91 @@ removeHelp shift hash key bitmap nodes =
         case JsArray.unsafeGet compIdx nodes of
             Leaf _ eIdx eKey eVal ->
                 if eKey == key then
-                    ( eIdx
-                    , Bitwise.xor bitmap mask
-                    , JsArray.removeIndex compIdx nodes
-                    )
+                    Dict
+                        (Bitwise.xor bitmap mask)
+                        (JsArray.removeIndex compIdx nodes)
+                        nextIndex
+                        (OrderedDict.remove eIdx triplets)
 
                 else
-                    ( -1
-                    , bitmap
-                    , nodes
-                    )
+                    Dict bitmap nodes nextIndex triplets
 
             SubTree subBitmap subNodes ->
                 let
-                    ( removeIdx, newSubBitmap, newSubNodes ) =
-                        removeHelp (shift + shiftStep) hash key subBitmap subNodes
+                    (Dict newSubBitmap newSubNodes _ newTriplets) =
+                        removeHelp
+                            (shift + shiftStep)
+                            hash
+                            key
+                            subBitmap
+                            subNodes
+                            nextIndex
+                            triplets
                 in
                 if newSubBitmap == 0 then
-                    ( removeIdx
-                    , Bitwise.xor bitmap mask
-                    , JsArray.removeIndex compIdx nodes
-                    )
+                    Dict
+                        (Bitwise.xor bitmap mask)
+                        (JsArray.removeIndex compIdx nodes)
+                        nextIndex
+                        newTriplets
 
                 else
-                    ( removeIdx
-                    , bitmap
-                    , JsArray.unsafeSet compIdx (SubTree newSubBitmap newSubNodes) nodes
-                    )
+                    Dict
+                        bitmap
+                        (JsArray.unsafeSet compIdx (SubTree newSubBitmap newSubNodes) nodes)
+                        nextIndex
+                        newTriplets
 
             Collision _ vals ->
                 let
-                    removeIdx =
+                    maybeIdx =
                         List.find (\( _, k, _ ) -> k == key) vals
                             |> Maybe.map (\( idx, _, _ ) -> idx)
-                            |> Maybe.withDefault -1
 
                     newCollision =
-                        List.filter (\( _, k, _ ) -> k /= key) vals
+                        case maybeIdx of
+                            Just removeIdx ->
+                                List.filter (\( _, k, _ ) -> k /= key) vals
+
+                            Nothing ->
+                                vals
+
+                    newTriplets =
+                        case maybeIdx of
+                            Just removeIdx ->
+                                OrderedDict.remove removeIdx triplets
+
+                            Nothing ->
+                                triplets
                 in
                 case newCollision of
                     [] ->
-                        ( removeIdx
-                        , Bitwise.xor bitmap mask
-                        , JsArray.removeIndex compIdx nodes
-                        )
+                        Dict
+                            (Bitwise.xor bitmap mask)
+                            (JsArray.removeIndex compIdx nodes)
+                            nextIndex
+                            newTriplets
 
                     ( eIdx, eKey, eVal ) :: [] ->
-                        ( removeIdx
-                        , bitmap
-                        , JsArray.unsafeSet compIdx (Leaf hash eIdx eKey eVal) nodes
-                        )
+                        Dict
+                            bitmap
+                            (JsArray.unsafeSet compIdx (Leaf hash eIdx eKey eVal) nodes)
+                            nextIndex
+                            newTriplets
 
                     _ ->
-                        ( removeIdx
-                        , bitmap
-                        , JsArray.unsafeSet compIdx (Collision hash newCollision) nodes
-                        )
+                        Dict
+                            bitmap
+                            (JsArray.unsafeSet compIdx (Collision hash newCollision) nodes)
+                            nextIndex
+                            newTriplets
 
     else
-        ( -1
-        , bitmap
-        , nodes
-        )
+        Dict
+            bitmap
+            nodes
+            nextIndex
+            triplets
 
 
 {-| Update the value of a dictionary for a specific key with a given function.
@@ -484,14 +504,14 @@ determines if the value is updated or removed. New key-value pairs can be
 inserted too.
 -}
 update : k -> (Maybe v -> Maybe v) -> Dict k v -> Dict k v
-update key fn ((Dict bitmap nodes nextIndex triplets) as dict) =
+update key fn (Dict bitmap nodes nextIndex triplets) =
     let
         hash =
             FNV.hash key
     in
     case fn (getHelp 0 hash key bitmap nodes) of
         Nothing ->
-            remove key dict
+            removeHelp 0 hash key bitmap nodes nextIndex triplets
 
         Just value ->
             insertHelp 0 hash key value bitmap nodes nextIndex triplets
@@ -645,5 +665,10 @@ intersect (Dict _ _ _ t1Triplets) t2 =
 {-| Keep a key-value pair when its key does not appear in the second Dictionary.
 -}
 diff : Dict k v -> Dict k v -> Dict k v
-diff t1 t2 =
-    foldl (\k _ t -> remove k t) t1 t2
+diff t1 (Dict _ _ _ t2Triplets) =
+    let
+        helper : Int -> ( Int, k, v ) -> Dict k v -> Dict k v
+        helper _ ( hash, key, value ) (Dict bitmap nodes nextIndex triplets) =
+            removeHelp 0 hash key bitmap nodes nextIndex triplets
+    in
+    OrderedDict.foldl helper t1 t2Triplets
