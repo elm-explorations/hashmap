@@ -190,7 +190,7 @@ in a NodeArray.
 compressedIndex : Int -> Int -> Int
 compressedIndex idx bitmap =
     -- The NodeArray at each level of a tree can be, at most, 32 in size.
-    -- A bitmap can contain 32 bits. 1 bits represents a stored value.
+    -- A bitmap can contain 32 bits. 1 bit represents a stored value.
     -- The compressed index is the number of elements to the left of the
     -- idx bit.
     let
