@@ -92,7 +92,14 @@ type ArrayValue k v
     | Value Int k v
 
 
-{-| How many bits represents the branching factor (32). Read Array documentation for
+{-| The size of each node array. Read Array documentation for more info.
+-}
+branchFactor : Int
+branchFactor =
+    32
+
+
+{-| How many bits represents the branching factor. Read Array documentation for
 more info.
 -}
 shiftStep : Int
@@ -106,6 +113,13 @@ in a number as a number of its own.
 bitMask : Int
 bitMask =
     Bitwise.shiftRightZfBy (32 - shiftStep) 0xFFFFFFFF
+
+
+{-| When used in a bitwise and, clears the first `shiftStep` bits from an int.
+-}
+invertedBitMask : Int
+invertedBitMask =
+    Bitwise.complement bitMask
 
 
 {-| Create an empty dictionary.
@@ -726,3 +740,342 @@ diff t1 (Dict _ _ _ t2Triplets) =
                     removeHelp 0 hash key bitmap nodes nextIndex triplets
     in
     Array.foldl helper t1 t2Triplets
+
+
+
+{- INT DICT -}
+
+
+type alias IntDict k v =
+    { nextIndex : Int
+    , size : Int
+    , startShift : Int
+    , tree : IntDictNodeArray k v
+    , treeBitmap : Int
+    , tail : IntDictNodeArray k v
+    , tailBitmap : Int
+    }
+
+
+type alias IntDictNodeArray k v =
+    JsArray (IntDictNode k v)
+
+
+type IntDictNode k v
+    = IntLeaf Int k v
+    | IntSubTree Int (IntDictNodeArray k v)
+
+
+intDictEmpty : IntDict k v
+intDictEmpty =
+    { nextIndex = 0
+    , size = 0
+    , startShift = shiftStep
+    , tree = JsArray.empty
+    , treeBitmap = 0
+    , tail = JsArray.empty
+    , tailBitmap = 0
+    }
+
+
+intDictPush : Int -> k -> v -> IntDict k v -> IntDict k v
+intDictPush hash key value dict =
+    let
+        newTail =
+            JsArray.push (IntLeaf hash key value) dict.tail
+
+        newSize =
+            dict.size + 1
+
+        newTailLength =
+            JsArray.length newTail
+
+        newTailIndex =
+            Bitwise.and bitMask newSize
+
+        newTailBitmap =
+            Bitwise.or dict.tailBitmap (Bitwise.shiftLeftBy newTailIndex 1)
+    in
+    if newTailLength == branchFactor then
+        let
+            overflow =
+                Bitwise.shiftRightZfBy shiftStep newSize > Bitwise.shiftLeftBy dict.startShift 1
+
+            tailSubTree =
+                IntSubTree dict.tailBitmap newTail
+        in
+        if overflow then
+            let
+                newShift =
+                    dict.startShift + shiftStep
+
+                ( newTreeBitmap, newTree ) =
+                    JsArray.singleton (IntSubTree dict.treeBitmap dict.tree)
+                        |> intDictInsertTailInTree newShift dict.nextIndex tailSubTree dict.treeBitmap
+            in
+            { nextIndex = dict.nextIndex + 1
+            , size = dict.size + 1
+            , startShift = newShift
+            , tree = newTree
+            , treeBitmap = newTreeBitmap
+            , tail = JsArray.empty
+            , tailBitmap = 0
+            }
+
+        else
+            let
+                ( newTreeBitmap, newTree ) =
+                    intDictInsertTailInTree
+                        dict.startShift
+                        dict.nextIndex
+                        tailSubTree
+                        dict.treeBitmap
+                        dict.tree
+            in
+            { nextIndex = dict.nextIndex + 1
+            , size = dict.size + 1
+            , startShift = dict.startShift
+            , tree = newTree
+            , treeBitmap = newTreeBitmap
+            , tail = JsArray.empty
+            , tailBitmap = 0
+            }
+
+    else
+        { nextIndex = dict.nextIndex + 1
+        , size = dict.size + 1
+        , startShift = dict.startShift
+        , tree = dict.tree
+        , treeBitmap = dict.treeBitmap
+        , tail = newTail
+        , tailBitmap = newTailBitmap
+        }
+
+
+intDictInsertTailInTree :
+    Int
+    -> Int
+    -> IntDictNode k v
+    -> Int
+    -> IntDictNodeArray k v
+    -> ( Int, IntDictNodeArray k v )
+intDictInsertTailInTree shift index tail bitmap tree =
+    let
+        pos =
+            Bitwise.and bitMask (Bitwise.shiftRightZfBy shift index)
+
+        newShift =
+            shift - shiftStep
+    in
+    if pos >= JsArray.length tree then
+        let
+            mask =
+                Bitwise.shiftLeftBy pos 1
+
+            newBitmap =
+                Bitwise.or mask bitmap
+        in
+        if shift == shiftStep then
+            ( newBitmap
+            , JsArray.push tail tree
+            )
+
+        else
+            let
+                ( subBitmap, subTree ) =
+                    intDictInsertTailInTree newShift index tail 0 JsArray.empty
+            in
+            ( newBitmap
+            , JsArray.push (IntSubTree subBitmap subTree) tree
+            )
+
+    else
+        case JsArray.unsafeGet pos tree of
+            IntSubTree subBitmap subTree ->
+                let
+                    ( newSubBitmap, newSubTree ) =
+                        intDictInsertTailInTree newShift index tail subBitmap subTree
+                in
+                ( bitmap
+                , JsArray.unsafeSet pos (IntSubTree newSubBitmap newSubTree) tree
+                )
+
+            IntLeaf _ _ _ ->
+                -- Cannot happen
+                ( bitmap, tree )
+
+
+{-| Will only ever be called when we know the index, so we don't need
+to do bounds checking.
+-}
+intDictSet : Int -> Int -> Int -> k -> v -> IntDict k v -> IntDict k v
+intDictSet shift index hash key value dict =
+    -- nextIndex
+    if index >= Bitwise.and invertedBitMask dict.size then
+        let
+            uncompressedIdx =
+                Bitwise.and bitMask index
+
+            comIdx =
+                compressedIndex uncompressedIdx dict.tailBitmap
+        in
+        { nextIndex = dict.nextIndex
+        , size = dict.size
+        , startShift = dict.startShift
+        , tree = dict.tree
+        , treeBitmap = dict.treeBitmap
+        , tail = JsArray.unsafeSet comIdx (IntLeaf hash key value) dict.tail
+        , tailBitmap = dict.tailBitmap
+        }
+
+    else
+        let
+            returned =
+                intDictSetHelp index
+                    dict.startShift
+                    (IntLeaf hash key value)
+                    dict.treeBitmap
+                    dict.tree
+        in
+        case returned of
+            IntSubTree subBitmap subTree ->
+                { nextIndex = dict.nextIndex
+                , size = dict.size
+                , startShift = dict.startShift
+                , tree = subTree
+                , treeBitmap = subBitmap
+                , tail = dict.tail
+                , tailBitmap = dict.tailBitmap
+                }
+
+            -- Cannot happen.
+            IntLeaf _ _ _ ->
+                dict
+
+
+intDictSetHelp :
+    Int
+    -> Int
+    -> IntDictNode k v
+    -> Int
+    -> IntDictNodeArray k v
+    -> IntDictNode k v
+intDictSetHelp shift index value bitmap tree =
+    let
+        uncompressedIdx =
+            Bitwise.and bitMask (Bitwise.shiftRightZfBy shift index)
+
+        comIdx =
+            compressedIndex uncompressedIdx bitmap
+    in
+    case JsArray.unsafeGet comIdx tree of
+        IntSubTree subBitmap subTree ->
+            let
+                newSub =
+                    intDictSetHelp (shift - shiftStep)
+                        index
+                        value
+                        subBitmap
+                        subTree
+            in
+            JsArray.unsafeSet comIdx newSub tree
+                |> IntSubTree subBitmap
+
+        IntLeaf _ _ _ ->
+            JsArray.unsafeSet comIdx value tree
+                |> IntSubTree bitmap
+
+
+intDictRemove : Int -> IntDict k v -> IntDict k v
+intDictRemove index dict =
+    if index >= Bitwise.and invertedBitMask dict.size then
+        let
+            uncompressedIndex =
+                Bitwise.and bitMask index
+
+            compIdx =
+                compressedIndex uncompressedIndex dict.tailBitmap
+
+            mask =
+                Bitwise.shiftLeftBy uncompressedIndex 1
+
+            newTailBitmap =
+                Bitwise.xor uncompressedIndex mask
+        in
+        { nextIndex = dict.nextIndex
+        , size = dict.size - 1
+        , startShift = dict.startShift
+        , tree = dict.tree
+        , treeBitmap = dict.treeBitmap
+        , tail = JsArray.removeIndex compIdx dict.tail
+        , tailBitmap = newTailBitmap
+        }
+
+    else
+        case intDictRemoveHelper dict.startShift index dict.treeBitmap dict.tree of
+            IntSubTree subBitmap subTree ->
+                { nextIndex = dict.nextIndex
+                , size = dict.size - 1
+                , startShift = dict.startShift
+                , tree = subTree
+                , treeBitmap = subBitmap
+                , tail = dict.tail
+                , tailBitmap = dict.tailBitmap
+                }
+
+            -- Cannot happen.
+            IntLeaf _ _ _ ->
+                dict
+
+
+intDictRemoveHelper : Int -> Int -> Int -> IntDictNodeArray k v -> IntDictNode k v
+intDictRemoveHelper shift index bitmap tree =
+    let
+        uncompressedIndex =
+            Bitwise.and bitMask (Bitwise.shiftRightZfBy shift index)
+
+        compIdx =
+            compressedIndex uncompressedIndex bitmap
+    in
+    case JsArray.unsafeGet compIdx tree of
+        IntSubTree subBitmap subTree ->
+            let
+                newSub =
+                    intDictRemoveHelper (shift - shiftStep) index subBitmap subTree
+            in
+            JsArray.unsafeSet compIdx newSub tree
+                |> IntSubTree bitmap
+
+        IntLeaf _ _ _ ->
+            JsArray.removeIndex compIdx tree
+                |> IntSubTree (Bitwise.xor bitmap uncompressedIndex)
+
+
+intDictFoldl : (Int -> k -> v -> acc -> acc) -> acc -> IntDict k v -> acc
+intDictFoldl func baseCase dict =
+    let
+        helper : IntDictNode k v -> acc -> acc
+        helper node acc =
+            case node of
+                IntLeaf hash key value ->
+                    func hash key value acc
+
+                IntSubTree _ subTree ->
+                    JsArray.foldl helper acc subTree
+    in
+    JsArray.foldl helper (JsArray.foldl helper baseCase dict.tree) dict.tail
+
+
+intDictFoldr : (Int -> k -> v -> acc -> acc) -> acc -> IntDict k v -> acc
+intDictFoldr func baseCase dict =
+    let
+        helper : IntDictNode k v -> acc -> acc
+        helper node acc =
+            case node of
+                IntLeaf hash key value ->
+                    func hash key value acc
+
+                IntSubTree _ subTree ->
+                    JsArray.foldr helper acc subTree
+    in
+    JsArray.foldr helper (JsArray.foldr helper baseCase dict.tail) dict.tree
