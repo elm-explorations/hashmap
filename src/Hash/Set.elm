@@ -139,15 +139,15 @@ fromList xs =
 {-| Fold over the values in a set.
 -}
 foldl : (a -> b -> b) -> b -> Set a -> b
-foldl f b (Set dict) =
-    Dict.foldl (\k _ b -> f k b) b dict
+foldl fn init (Set dict) =
+    Dict.foldl (\k _ acc -> fn k acc) init dict
 
 
 {-| Fold over the values in a set.
 -}
 foldr : (a -> b -> b) -> b -> Set a -> b
-foldr f b (Set dict) =
-    Dict.foldr (\k _ b -> f k b) b dict
+foldr fn init (Set dict) =
+    Dict.foldr (\k _ acc -> fn k acc) init dict
 
 
 {-| Map a function onto a set, creating a new set with no duplicates.

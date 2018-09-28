@@ -41,10 +41,10 @@ module Hash.Dict exposing
 
 -}
 
-import Array.Hamt as Array exposing (Array)
+import Array exposing (Array)
 import Bitwise
-import Hash.FNV as FNV
-import Hash.JsArray as JsArray exposing (JsArray)
+import Elm.FNV as FNV
+import Elm.JsArray as JsArray exposing (JsArray)
 import List.Extra as List
 
 
@@ -175,7 +175,7 @@ dictionary.
 
 -}
 get : k -> Dict k v -> Maybe v
-get key (Dict bitmap nodes _ values) =
+get key (Dict bitmap nodes _ _) =
     getHelp 0 (FNV.hash key) key bitmap nodes
 
 
@@ -590,7 +590,7 @@ values dict =
 {-| Fold over the key-value pairs in a dictionary.
 -}
 foldl : (k -> v -> b -> b) -> b -> Dict k v -> b
-foldl fn acc (Dict _ _ _ triplets) =
+foldl fn init (Dict _ _ _ triplets) =
     let
         helper : ArrayValue k v -> b -> b
         helper arrayValue acc =
@@ -601,11 +601,11 @@ foldl fn acc (Dict _ _ _ triplets) =
                 Value _ key value ->
                     fn key value acc
     in
-    Array.foldl helper acc triplets
+    Array.foldl helper init triplets
 
 
 foldr : (k -> v -> b -> b) -> b -> Dict k v -> b
-foldr fn acc (Dict _ _ _ triplets) =
+foldr fn init (Dict _ _ _ triplets) =
     let
         helper : ArrayValue k v -> b -> b
         helper arrayValue acc =
@@ -616,7 +616,7 @@ foldr fn acc (Dict _ _ _ triplets) =
                 Value _ key value ->
                     fn key value acc
     in
-    Array.foldr helper acc triplets
+    Array.foldr helper init triplets
 
 
 {-| Apply a function to all values in a dictionary.

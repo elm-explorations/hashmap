@@ -1,0 +1,19 @@
+{
+    "type": "package",
+    "name": "elm-explorations/hashmap",
+    "summary": "Hash based Dict and Set implementations for Elm.",
+    "license": "BSD-3-Clause",
+    "version": "1.0.0",
+    "exposed-modules": [
+        "Hash.Dict",
+        "Hash.Set"
+    ],
+    "elm-version": "0.19.0 <= v < 0.20.0",
+    "dependencies": {
+        "elm/core": "1.0.0 <= v < 2.0.0",
+        "elm-community/list-extra": "8.0.0 <= v < 9.0.0"
+    },
+    "test-dependencies": {
+        "elm-explorations/test": "1.1.0 <= v < 2.0.0"
+    }
+}
