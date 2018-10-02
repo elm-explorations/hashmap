@@ -756,11 +756,11 @@ intDictPush hash key value dict =
         newTailLength =
             JsArray.length newTail
 
-        newTailIndex =
-            Bitwise.and bitMask newSize
+        bitmapShift =
+            Bitwise.and bitMask dict.nextIndex
 
         newTailBitmap =
-            Bitwise.or dict.tailBitmap (Bitwise.shiftLeftBy newTailIndex 1)
+            Bitwise.or dict.tailBitmap (Bitwise.shiftLeftBy bitmapShift 1)
     in
     if newTailLength == branchFactor then
         let
@@ -768,7 +768,7 @@ intDictPush hash key value dict =
                 Bitwise.shiftRightZfBy shiftStep newSize > Bitwise.shiftLeftBy dict.startShift 1
 
             tailSubTree =
-                IntSubTree dict.tailBitmap newTail
+                IntSubTree newTailBitmap newTail
         in
         if overflow then
             let
@@ -780,7 +780,7 @@ intDictPush hash key value dict =
                         |> intDictInsertTailInTree newShift dict.nextIndex tailSubTree dict.treeBitmap
             in
             { nextIndex = dict.nextIndex + 1
-            , size = dict.size + 1
+            , size = newSize
             , startShift = newShift
             , tree = newTree
             , treeBitmap = newTreeBitmap
@@ -799,7 +799,7 @@ intDictPush hash key value dict =
                         dict.tree
             in
             { nextIndex = dict.nextIndex + 1
-            , size = dict.size + 1
+            , size = newSize
             , startShift = dict.startShift
             , tree = newTree
             , treeBitmap = newTreeBitmap
@@ -809,7 +809,7 @@ intDictPush hash key value dict =
 
     else
         { nextIndex = dict.nextIndex + 1
-        , size = dict.size + 1
+        , size = newSize
         , startShift = dict.startShift
         , tree = dict.tree
         , treeBitmap = dict.treeBitmap
