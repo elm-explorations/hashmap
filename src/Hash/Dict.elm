@@ -953,7 +953,7 @@ intDictSetHelp shift index value bitmap tree =
 
 intDictRemove : Int -> IntDict k v -> IntDict k v
 intDictRemove index dict =
-    if index >= Bitwise.and invertedBitMask dict.size then
+    if index >= Bitwise.and invertedBitMask dict.nextIndex then
         let
             uncompressedIndex =
                 Bitwise.and bitMask index
@@ -963,9 +963,6 @@ intDictRemove index dict =
 
             mask =
                 Bitwise.shiftLeftBy uncompressedIndex 1
-
-            newTailBitmap =
-                Bitwise.xor uncompressedIndex mask
         in
         { nextIndex = dict.nextIndex
         , size = dict.size - 1
@@ -973,7 +970,7 @@ intDictRemove index dict =
         , tree = dict.tree
         , treeBitmap = dict.treeBitmap
         , tail = JsArray.removeIndex compIdx dict.tail
-        , tailBitmap = newTailBitmap
+        , tailBitmap = Bitwise.xor dict.tailBitmap mask
         }
 
     else
@@ -1012,8 +1009,15 @@ intDictRemoveHelper shift index bitmap tree =
                 |> IntSubTree bitmap
 
         IntLeaf _ _ _ ->
+            let
+                mask =
+                    Bitwise.shiftLeftBy uncompressedIndex 1
+
+                newBitmap =
+                    Bitwise.xor bitmap mask
+            in
             JsArray.removeIndex compIdx tree
-                |> IntSubTree (Bitwise.xor bitmap uncompressedIndex)
+                |> IntSubTree newBitmap
 
 
 intDictFoldl : (Int -> k -> v -> acc -> acc) -> acc -> IntDict k v -> acc
