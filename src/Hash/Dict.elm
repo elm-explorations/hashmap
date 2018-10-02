@@ -896,8 +896,8 @@ intDictSet index hash key value dict =
     else
         let
             returned =
-                intDictSetHelp index
-                    dict.startShift
+                intDictSetHelp dict.startShift
+                    index
                     (IntLeaf hash key value)
                     dict.treeBitmap
                     dict.tree
