@@ -2,4 +2,4 @@
 
 set -e
 
-elm-make --yes --output index.html Main.elm
+../node_modules/.bin/elm-make --yes --output index.html Main.elm
