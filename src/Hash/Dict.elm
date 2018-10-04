@@ -622,13 +622,44 @@ foldr fn acc (Dict _ _ triplets) =
 {-| Apply a function to all values in a dictionary.
 -}
 map : (k -> a -> b) -> Dict k a -> Dict k b
-map fn (Dict _ _ rootTriplets) =
+map fn (Dict rootBitmap rootNodes rootTriplets) =
     let
-        helper : ( Int, k, a ) -> Dict k b -> Dict k b
-        helper ( hash, key, value ) ((Dict bitmap nodes triplets) as dict) =
-            insertHelp 0 hash key (fn key value) bitmap nodes triplets
+        valueHelper : ( Int, k, a ) -> ( Int, k, b )
+        valueHelper ( i, k, v ) =
+            ( i, k, fn k v )
+
+        dictHelper : Node k a -> Node k b
+        dictHelper node =
+            case node of
+                Leaf idx h k v ->
+                    Leaf idx h k <| fn k v
+
+                SubTree bitmap nodes ->
+                    SubTree bitmap <| JsArray.map dictHelper nodes
+
+                Collision h triplets ->
+                    Collision h <| List.map valueHelper triplets
+
+        intDictHelper : IntDictNode k a -> IntDictNode k b
+        intDictHelper node =
+            case node of
+                IntLeaves bitmap leaves ->
+                    IntLeaves bitmap <| JsArray.map valueHelper leaves
+
+                IntSubTree bitmap subTree ->
+                    IntSubTree bitmap <| JsArray.map intDictHelper subTree
     in
-    intDictFoldl helper empty rootTriplets
+    Dict
+        rootBitmap
+        (JsArray.map dictHelper rootNodes)
+        { nextIndex = rootTriplets.nextIndex
+        , size = rootTriplets.size
+        , startShift = rootTriplets.startShift
+        , tree = JsArray.map intDictHelper rootTriplets.tree
+        , treeBitmap = rootTriplets.treeBitmap
+        , tail = JsArray.map valueHelper rootTriplets.tail
+        , tailBitmap = rootTriplets.tailBitmap
+        }
 
 
 {-| Keep a key-value pair when it satisfies a predicate.
