@@ -29,7 +29,7 @@ suite n =
                 |> List.concat
 
         toKeyValuePair n =
-            ( n, n )
+            ( toString n, n )
 
         setLs =
             List.map toKeyValuePair (List.range half (n + half))
@@ -90,6 +90,11 @@ suite n =
             (\_ -> Dict.filter (\k v -> v % 2 == 0) original)
             "Hash"
             (\_ -> Dict2.filter (\k v -> v % 2 == 0) updated)
+        , Benchmark.compare "toList"
+            "LLRB"
+            (\_ -> Dict.toList original)
+            "Hash"
+            (\_ -> Dict2.toList updated)
         , Benchmark.compare "Union"
             "LLRB"
             (\_ -> Dict.union original originalSetDict)
