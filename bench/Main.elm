@@ -51,62 +51,62 @@ suite n =
     in
     describe (toString n ++ " elements")
         [ Benchmark.compare "Get"
-            "LLRB"
+            "Core"
             (\_ -> getter Dict.get keys original)
             "Hash"
             (\_ -> getter Dict2.get keys updated)
         , Benchmark.compare "Insert"
-            "LLRB"
+            "Core"
             (\_ -> Dict.fromList ls)
             "Hash"
             (\_ -> Dict2.fromList ls)
         , Benchmark.compare "Remove"
-            "LLRB"
+            "Core"
             (\_ -> remover Dict.remove keys original)
             "Hash"
             (\_ -> remover Dict2.remove keys updated)
         , Benchmark.compare "Remove one item"
-            "LLRB"
+            "Core"
             (\_ -> singleRemover Dict.remove keys original)
             "Hash"
             (\_ -> singleRemover Dict2.remove keys updated)
         , Benchmark.compare "Update insert"
-            "LLRB"
+            "Core"
             (\_ -> updater Dict.update (\_ -> Just -1) keys original)
             "Hash"
             (\_ -> updater Dict2.update (\_ -> Just -1) keys updated)
         , Benchmark.compare "Update remove"
-            "LLRB"
+            "Core"
             (\_ -> updater Dict.update (\_ -> Nothing) keys original)
             "Hash"
             (\_ -> updater Dict2.update (\_ -> Nothing) keys updated)
         , Benchmark.compare "Map"
-            "LLRB"
+            "Core"
             (\_ -> Dict.map (\k v -> v + 1) original)
             "Hash"
             (\_ -> Dict2.map (\k v -> v + 1) updated)
         , Benchmark.compare "Filter"
-            "LLRB"
+            "Core"
             (\_ -> Dict.filter (\k v -> v % 2 == 0) original)
             "Hash"
             (\_ -> Dict2.filter (\k v -> v % 2 == 0) updated)
         , Benchmark.compare "toList"
-            "LLRB"
+            "Core"
             (\_ -> Dict.toList original)
             "Hash"
             (\_ -> Dict2.toList updated)
         , Benchmark.compare "Union"
-            "LLRB"
+            "Core"
             (\_ -> Dict.union original originalSetDict)
             "Hash"
             (\_ -> Dict2.union updated updatedSetDict)
         , Benchmark.compare "Intersect"
-            "LLRB"
+            "Core"
             (\_ -> Dict.intersect original originalSetDict)
             "Hash"
             (\_ -> Dict2.intersect updated updatedSetDict)
         , Benchmark.compare "Diff"
-            "LLRB"
+            "Core"
             (\_ -> Dict.diff original originalSetDict)
             "Hash"
             (\_ -> Dict2.diff updated updatedSetDict)
