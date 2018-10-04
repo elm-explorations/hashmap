@@ -231,8 +231,29 @@ member key (Dict bitmap nodes _ _) =
 a collision.
 -}
 insert : k -> v -> Dict k v -> Dict k v
-insert key value (Dict bitmap nodes nextIndex triplets) =
+insert key value dict =
+    let
+        (Dict bitmap nodes nextIndex triplets) =
+            rebuildOnOverflow dict
+    in
     insertHelp 0 (FNV.hash key) key value bitmap nodes nextIndex triplets
+
+
+{-| At some point we will run out of order indices, so we'll have to compress
+the int dict by rebuilding the dict.
+-}
+rebuildOnOverflow : Dict k v -> Dict k v
+rebuildOnOverflow ((Dict _ _ _ rootTriplets) as dict) =
+    if rootTriplets.size >= 0xFFFFFFFF then
+        let
+            helper : Int -> k -> v -> Dict k v -> Dict k v
+            helper hash key value (Dict bitmap nodes nextIndex triplets) =
+                insertHelp 0 hash key value bitmap nodes nextIndex triplets
+        in
+        intDictFoldl helper empty rootTriplets
+
+    else
+        dict
 
 
 insertHelp :
@@ -516,7 +537,7 @@ determines if the value is updated or removed. New key-value pairs can be
 inserted too.
 -}
 update : k -> (Maybe v -> Maybe v) -> Dict k v -> Dict k v
-update key fn (Dict bitmap nodes nextIndex triplets) =
+update key fn ((Dict bitmap nodes nextIndex triplets) as dict) =
     let
         hash =
             FNV.hash key
@@ -526,6 +547,10 @@ update key fn (Dict bitmap nodes nextIndex triplets) =
             removeHelp 0 hash key bitmap nodes nextIndex triplets
 
         Just value ->
+            let
+                (Dict insertBitmap insertNodes insertNextIndex insertTriplets) =
+                    rebuildOnOverflow dict
+            in
             insertHelp 0 hash key value bitmap nodes nextIndex triplets
 
 
@@ -672,7 +697,11 @@ union : Dict k v -> Dict k v -> Dict k v
 union (Dict _ _ _ t1Triplets) t2 =
     let
         helper : Int -> k -> v -> Dict k v -> Dict k v
-        helper hash key value ((Dict bitmap nodes nextIndex triplets) as dict) =
+        helper hash key value dict =
+            let
+                (Dict bitmap nodes nextIndex triplets) =
+                    rebuildOnOverflow dict
+            in
             insertHelp 0 hash key value bitmap nodes nextIndex triplets
     in
     intDictFoldl helper t2 t1Triplets
