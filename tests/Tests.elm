@@ -2,8 +2,8 @@ module Tests exposing (tests)
 
 import Basics exposing (..)
 import Dict as CoreImpl
-import Expect
-import Fuzz exposing (Fuzzer)
+import Expect exposing (Expectation)
+import Fuzz exposing (Fuzzer, int)
 import Hash.Dict as Dict exposing (Dict)
 import Hash.Set as Set
 import List
@@ -15,29 +15,6 @@ import Test exposing (..)
 animals : Dict.Dict String String
 animals =
     Dict.fromList [ ( "Tom", "cat" ), ( "Jerry", "mouse" ) ]
-
-
-pairRange : Fuzzer Int
-pairRange =
-    Fuzz.intRange 0 1000
-
-
-fuzzPairs : Fuzzer (List ( Int, Int ))
-fuzzPairs =
-    ( pairRange, pairRange )
-        |> Fuzz.tuple
-        |> Fuzz.list
-
-
-fuzzDict : Fuzzer (Dict Int Int)
-fuzzDict =
-    Fuzz.map Dict.fromList fuzzPairs
-
-
-comparisonList : Dict.Dict comparable a -> List ( comparable, a )
-comparisonList dict =
-    Dict.toList dict
-        |> List.sortBy Tuple.first
 
 
 type alias CollisionObject =
@@ -124,8 +101,8 @@ tests =
                 [ test "union" <|
                     \() ->
                         Expect.equal
-                            (comparisonList animals)
-                            (comparisonList
+                            (Dict.toList animals)
+                            (Dict.toList
                                 (Dict.union
                                     (Dict.singleton "Jerry" "mouse")
                                     (Dict.singleton "Tom" "cat")
@@ -134,8 +111,8 @@ tests =
                 , test "union collison" <|
                     \() ->
                         Expect.equal
-                            (comparisonList (Dict.singleton "Tom" "cat"))
-                            (comparisonList
+                            (Dict.toList (Dict.singleton "Tom" "cat"))
+                            (Dict.toList
                                 (Dict.union
                                     (Dict.singleton "Tom" "cat")
                                     (Dict.singleton "Tom" "mouse")
@@ -144,8 +121,8 @@ tests =
                 , test "intersect" <|
                     \() ->
                         Expect.equal
-                            (comparisonList (Dict.singleton "Tom" "cat"))
-                            (comparisonList
+                            (Dict.toList (Dict.singleton "Tom" "cat"))
+                            (Dict.toList
                                 (Dict.intersect
                                     animals
                                     (Dict.singleton "Tom" "cat")
@@ -154,8 +131,8 @@ tests =
                 , test "intersect collision" <|
                     \() ->
                         Expect.equal
-                            (comparisonList (Dict.singleton "Tom" "wolf"))
-                            (comparisonList
+                            (Dict.toList (Dict.singleton "Tom" "wolf"))
+                            (Dict.toList
                                 (Dict.intersect
                                     (Dict.singleton "Tom" "wolf")
                                     animals
@@ -164,8 +141,8 @@ tests =
                 , test "diff" <|
                     \() ->
                         Expect.equal
-                            (comparisonList (Dict.singleton "Jerry" "mouse"))
-                            (comparisonList
+                            (Dict.toList (Dict.singleton "Jerry" "mouse"))
+                            (Dict.toList
                                 (Dict.diff
                                     animals
                                     (Dict.singleton "Tom" "cat")
@@ -180,7 +157,13 @@ tests =
                 , test "filter (numbers)" <|
                     \() ->
                         Expect.equal [ 2, 4, 6, 8, 10 ]
-                            (List.range 1 10 |> List.indexedMap (,) |> Dict.fromList |> Dict.filter (\_ v -> v % 2 == 0) |> comparisonList |> List.map Tuple.second)
+                            (List.range 1 10
+                                |> List.indexedMap (,)
+                                |> Dict.fromList
+                                |> Dict.filter (\_ v -> v % 2 == 0)
+                                |> Dict.toList
+                                |> List.map Tuple.second
+                            )
                 , test "partition" <|
                     \() ->
                         Expect.equal
@@ -194,8 +177,8 @@ tests =
                                 |> Dict.fromList
                                 |> Dict.partition (\_ v -> v % 2 == 0)
                                 |> (\( a, b ) ->
-                                        ( comparisonList a |> List.map Tuple.second
-                                        , comparisonList b |> List.map Tuple.second
+                                        ( Dict.toList a |> List.map Tuple.second
+                                        , Dict.toList b |> List.map Tuple.second
                                         )
                                    )
                             )
@@ -203,13 +186,16 @@ tests =
 
         fuzzTests =
             describe "Fuzz tests"
-                [ fuzz2 fuzzPairs pairRange "Get works" <|
+                [ fuzz2 fuzzPairs int "Get works" <|
                     \pairs num ->
                         Dict.get num (Dict.fromList pairs)
                             |> Expect.equal (CoreImpl.get num (CoreImpl.fromList pairs))
                 , fuzz fuzzPairs "Converting to/from list works" <|
                     \pairs ->
-                        comparisonList (Dict.fromList pairs)
+                        pairs
+                            |> Dict.fromList
+                            |> Dict.toList
+                            |> List.sortBy Tuple.first
                             |> Expect.equal (CoreImpl.toList (CoreImpl.fromList pairs))
                 , fuzz fuzzPairs "Insert order is maintained" <|
                     \pairs ->
@@ -217,34 +203,59 @@ tests =
                             deduped =
                                 List.uniqueBy Tuple.first pairs
                         in
-                        deduped
+                        pairs
                             |> Dict.fromList
                             |> Dict.toList
                             |> Expect.equal deduped
-                , fuzz2 fuzzPairs pairRange "Insert works" <|
+                , fuzz2 fuzzPairs int "Insert works" <|
                     \pairs num ->
-                        comparisonList (Dict.insert num num (Dict.fromList pairs))
-                            |> Expect.equal (CoreImpl.toList (CoreImpl.insert num num (CoreImpl.fromList pairs)))
-                , fuzz2 fuzzPairs pairRange "Removal works" <|
+                        Dict.insert num num (Dict.fromList pairs)
+                            |> Expect.all
+                                [ expectSynchronized
+                                , expectEqualDict (CoreImpl.insert num num (CoreImpl.fromList pairs))
+                                ]
+                , fuzz2 fuzzPairs int "Removal works" <|
                     \pairs num ->
-                        comparisonList (Dict.remove num (Dict.fromList pairs))
-                            |> Expect.equal (CoreImpl.toList (CoreImpl.remove num (CoreImpl.fromList pairs)))
+                        Dict.remove num (Dict.fromList pairs)
+                            |> Expect.all
+                                [ expectSynchronized
+                                , expectEqualDict (CoreImpl.remove num (CoreImpl.fromList pairs))
+                                ]
                 , fuzz fuzzPairs "Map works" <|
                     \pairs ->
-                        comparisonList (Dict.map (\k v -> k + v) (Dict.fromList pairs))
-                            |> Expect.equal (CoreImpl.toList (CoreImpl.map (\k v -> k + v) (CoreImpl.fromList pairs)))
+                        Dict.map (\k v -> k + v) (Dict.fromList pairs)
+                            |> Expect.all
+                                [ expectSynchronized
+                                , expectEqualDict (CoreImpl.map (\k v -> k + v) (CoreImpl.fromList pairs))
+                                ]
+                , fuzz fuzzPairs "Filter works" <|
+                    \pairs ->
+                        Dict.filter (\k _ -> k % 2 == 0) (Dict.fromList pairs)
+                            |> Expect.all
+                                [ expectSynchronized
+                                , expectEqualDict (CoreImpl.filter (\k _ -> k % 2 == 0) (CoreImpl.fromList pairs))
+                                ]
                 , fuzz2 fuzzPairs fuzzPairs "Union works" <|
                     \pairs pairs2 ->
-                        comparisonList (Dict.union (Dict.fromList pairs) (Dict.fromList pairs2))
-                            |> Expect.equal (CoreImpl.toList (CoreImpl.union (CoreImpl.fromList pairs) (CoreImpl.fromList pairs2)))
+                        Dict.union (Dict.fromList pairs) (Dict.fromList pairs2)
+                            |> Expect.all
+                                [ expectSynchronized
+                                , expectEqualDict (CoreImpl.union (CoreImpl.fromList pairs) (CoreImpl.fromList pairs2))
+                                ]
                 , fuzz2 fuzzPairs fuzzPairs "Intersect works" <|
                     \pairs pairs2 ->
-                        comparisonList (Dict.intersect (Dict.fromList pairs) (Dict.fromList pairs2))
-                            |> Expect.equal (CoreImpl.toList (CoreImpl.intersect (CoreImpl.fromList pairs) (CoreImpl.fromList pairs2)))
+                        Dict.intersect (Dict.fromList pairs) (Dict.fromList pairs2)
+                            |> Expect.all
+                                [ expectSynchronized
+                                , expectEqualDict (CoreImpl.intersect (CoreImpl.fromList pairs) (CoreImpl.fromList pairs2))
+                                ]
                 , fuzz2 fuzzPairs fuzzPairs "Diff works" <|
                     \pairs pairs2 ->
-                        comparisonList (Dict.diff (Dict.fromList pairs) (Dict.fromList pairs2))
-                            |> Expect.equal (CoreImpl.toList (CoreImpl.diff (CoreImpl.fromList pairs) (CoreImpl.fromList pairs2)))
+                        Dict.diff (Dict.fromList pairs) (Dict.fromList pairs2)
+                            |> Expect.all
+                                [ expectSynchronized
+                                , expectEqualDict (CoreImpl.diff (CoreImpl.fromList pairs) (CoreImpl.fromList pairs2))
+                                ]
                 ]
 
         collisionTests =
@@ -271,3 +282,50 @@ tests =
         , fuzzTests
         , collisionTests
         ]
+
+
+
+-- HELPERS
+
+
+fuzzPairs : Fuzzer (List ( Int, Int ))
+fuzzPairs =
+    ( int, int )
+        |> Fuzz.tuple
+        |> Fuzz.list
+
+
+expectEqualDict : CoreImpl.Dict comparable a -> Dict.Dict comparable a -> Expectation
+expectEqualDict core hash =
+    let
+        listify key value acc =
+            ( key, value ) :: acc
+
+        coreList =
+            CoreImpl.foldr listify [] core
+
+        hashList =
+            Dict.toList hash
+                |> List.sortBy Tuple.first
+    in
+    Expect.equal coreList hashList
+
+
+expectSynchronized : Dict.Dict comparable a -> Expectation
+expectSynchronized hash =
+    Dict.foldl
+        (\key value acc ->
+            case Dict.get key hash of
+                Just toCompare ->
+                    if toCompare == value then
+                        CoreImpl.insert key value acc
+
+                    else
+                        acc
+
+                Nothing ->
+                    acc
+        )
+        CoreImpl.empty
+        hash
+        |> (\toCompare -> expectEqualDict toCompare hash)
