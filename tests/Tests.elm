@@ -201,11 +201,13 @@ tests =
                     \pairs ->
                         let
                             deduped =
-                                List.uniqueBy Tuple.first pairs
+                                pairs
+                                    |> List.map Tuple.first
+                                    |> List.unique
                         in
                         pairs
                             |> Dict.fromList
-                            |> Dict.toList
+                            |> Dict.keys
                             |> Expect.equal deduped
                 , fuzz2 fuzzPairs int "Insert works" <|
                     \pairs num ->
