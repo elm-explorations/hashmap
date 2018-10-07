@@ -50,22 +50,25 @@ import List.Extra as List
 {-| A dictionary of keys and values. So a `(Dict String User)` is a dictionary
 that lets you look up a `String` (such as user names) and find the associated
 `User`.
+
+This implementation differs from the one in core in that keys don't have to
+be comparable, and that operations like foldl and foldr iterates the key-value
+pairs in insertion order instead of sorted order.
+
 -}
 type
     Dict k v
-    -- The first argument is a bitmap (32 bits). If a bit is set, it means
-    -- that a value is stored at that index (NodeArray is 32 in size).
-    -- NodeArray contains Nodes (look below).
+    -- Bitmap (Int): The tree is compressed (empty nodes are not stored), so
+    -- this bitmap stores what index each node is actually stored at.
     --
-    -- A Dict is essentially an Array. We use a hash function to convert the
-    -- key to an Int, which we use as an index.
-    -- Since the hash function doesn't return sequential values, we use a
-    -- bitmap to compress the NodeArray. The actual index of a key depends
-    -- on how many bits are set before the actual index in the bitmap.
+    -- Tree (NodeArray k v): An array of nodes. "Empty" nodes are not
+    -- stored in the array, so we need a bitmap to figure out which
+    -- index each node is actually stored at.
     --
-    -- Example: The hash for key '0' tells us that the element should be
-    -- stored at index 9. In the bitmap, there are no set bits (ones) before
-    -- index 9, so we actually store the key-value pair at index 0.
+    -- Int Dict: This datastructure stores each key-value pair in
+    -- insertion order. Whenever we iterate over the hash-map, we actually
+    -- iterate over this data structure. You can find the Int Dict impl.
+    -- at the bottom of this file.
     = Dict Int (NodeArray k v) (IntDict k v)
 
 
@@ -75,14 +78,12 @@ type alias NodeArray k v =
 
 type
     Node k v
-    -- In addition to Leaf's and SubTree's (read the code for Array for more info)
-    -- we also have to consider Collisions. A hash function can potentially return
-    -- the same hash for two different keys. In that case we store the key-value
-    -- pairs in a list, and need to run an equality check when retrieving, or removing,
-    -- said key. If we use a hash-function which causes a lot of collisions, our Dict
-    -- essentially degrades into a List.
+    -- Index into Int Dict structure, the key hash, key and value.
     = Leaf Int Int k v
+      -- Bitmap for the NodeArray and the actual NodeArray
     | SubTree Int (NodeArray k v)
+      -- Hashing different keys can give us the same result. We call this a collision.
+      -- The hash for each triplet, and a list of (Int Dict index, key and value)
     | Collision Int (List ( Int, k, v ))
 
 
@@ -116,14 +117,21 @@ invertedBitMask =
     Bitwise.complement bitMask
 
 
-{-| When to rebuild int dict
+{-| Every time we insert something into `Int Dict` we store the key-value at
+the previous index + 1. Removing a key-value pair doesn't change this, so at
+some point we will run out of indices. When we do, we need to rebuild the
+structure an try again.
+
+Since we use bitwise operations on indices, the rebuild threshold has to be
+the largest int value for a 32-bit int.
+
 -}
 rebuildThreshold : Int
 rebuildThreshold =
     0xFFFFFFFF
 
 
-{-| Create an empty dictionary.
+{-| The empty dictionary.
 -}
 empty : Dict k v
 empty =
@@ -173,14 +181,20 @@ get key (Dict bitmap nodes values) =
 getHelp : Int -> Int -> k -> Int -> NodeArray k v -> Maybe v
 getHelp shift hash key bitmap nodes =
     let
-        idx =
+        index =
+            -- Read `shift + shiftStep` bits from the hash as a number
+            -- of its own.
             Bitwise.and bitMask (Bitwise.shiftRightZfBy shift hash)
 
         mask =
-            Bitwise.shiftLeftBy idx 1
+            -- Create a mask, a number where a specific bit is set. We
+            -- can use this to figure out what the actual position of
+            -- a node is in the tree.
+            Bitwise.shiftLeftBy index 1
     in
+    -- is the bit at `index` set?
     if Bitwise.and bitmap mask == mask then
-        case JsArray.unsafeGet (compressedIndex idx bitmap) nodes of
+        case JsArray.unsafeGet (compressedIndex index bitmap) nodes of
             Leaf _ eIdx eKey eVal ->
                 if key == eKey then
                     Just eVal
@@ -207,14 +221,14 @@ getHelp shift hash key bitmap nodes =
 in a NodeArray.
 -}
 compressedIndex : Int -> Int -> Int
-compressedIndex idx bitmap =
+compressedIndex index bitmap =
     -- The NodeArray at each level of a tree can be, at most, 32 in size.
     -- A bitmap can contain 32 bits. 1 bit represents a stored value.
     -- The compressed index is the number of elements to the left of the
     -- idx bit.
     let
         relevantBits =
-            Bitwise.shiftLeftBy 1 (Bitwise.shiftLeftBy (31 - idx) bitmap)
+            Bitwise.shiftLeftBy 1 (Bitwise.shiftLeftBy (31 - index) bitmap)
 
         -- Count the number of set bits (1 bits) in an Int.
         -- See: <https://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel>
@@ -231,7 +245,12 @@ compressedIndex idx bitmap =
 -}
 member : k -> Dict k v -> Bool
 member key (Dict bitmap nodes _) =
-    getHelp 0 (FNV.hash key) key bitmap nodes /= Nothing
+    case getHelp 0 (FNV.hash key) key bitmap nodes of
+        Just _ ->
+            True
+
+        Nothing ->
+            False
 
 
 {-| Insert a key-value pair into the dictionary. Replaces value when there is
@@ -247,7 +266,7 @@ insert key value dict =
 
 
 {-| At some point we will run out of order indices, so we'll have to compress
-the int dict by rebuilding the dict.
+the int dict by rebuilding the it
 -}
 rebuildOnOverflow : Dict k v -> Dict k v
 rebuildOnOverflow ((Dict _ _ rootTriplets) as dict) =
@@ -597,7 +616,8 @@ values (Dict _ _ triplets) =
 -- TRANSFORM
 
 
-{-| Fold over the key-value pairs in a dictionary.
+{-| Fold over the key-value pairs in a dictionary in the order the key was
+first inserted.
 -}
 foldl : (k -> v -> b -> b) -> b -> Dict k v -> b
 foldl fn acc (Dict _ _ triplets) =
@@ -609,6 +629,9 @@ foldl fn acc (Dict _ _ triplets) =
     intDictFoldl helper acc triplets
 
 
+{-| Fold over the key-value pairs in a dictionary in the reverse order the key
+was first inserted.
+-}
 foldr : (k -> v -> b -> b) -> b -> Dict k v -> b
 foldr fn acc (Dict _ _ triplets) =
     let
@@ -761,7 +784,17 @@ diff t1 (Dict _ _ t2Triplets) =
 
 
 
-{- INT DICT -}
+{- INT DICT
+
+   This is an internal structure which is only used for remembering the insertion
+   order of key-value pairs. We store the hash, key and value here as well, so
+   fold operations become as fast as possible.
+
+   The structure is sort of a combination of the above hash map and `Array`. This
+   structure allows removing a value stored at a certain index, without changing the
+   index of every other key-value pair. Unfortunetly, this does mean that the structure
+   has to be rebuilt at some point, but that happens so rarely that it can be ignored.
+-}
 
 
 type alias IntDict k v =
